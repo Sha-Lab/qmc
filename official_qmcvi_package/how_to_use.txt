@@ -1,0 +1,11 @@
+Install packages:
+
+pip install torch
+pip install particles
+
+
+Please see the install notes for particles package.
+
+The particles package is a python wrapper around Fortran code that generates qmc and rqmc sequences efficiently.
+To use this module, you must first compile LowDiscrepancy.f, as explained in
+the installation notes https://github.com/nchopin/particles
