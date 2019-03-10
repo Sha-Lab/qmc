@@ -59,7 +59,9 @@ class Normal_RQMC(Distribution):
     def icdf(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        return self.loc + self.scale * torch.erfinv(2 * value - 1) * math.sqrt(2)
+        res = self.loc + self.scale * torch.erfinv(2 * value - 1) * math.sqrt(2) 
+        #if torch.any(res == float('inf')) or torch.any(res == float('-inf')): import ipdb; ipdb.set_trace()
+        return res
 
     # TODO: add functions from binomial (e.g. new_)
     # TODO: How to deal with relative imports...

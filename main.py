@@ -6,10 +6,9 @@ from lqr import LQR
 from utils import set_seed
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
+from ipdb import slaunch_ipdb_on_exception
 
-H = 100
 L = 5
-n_trajs = 2500
 
 def rollout(env, K, noises):
     cost = 0.0
@@ -17,7 +16,10 @@ def rollout(env, K, noises):
     done = False
     s = env.reset()
     while not done:
-        s, r, done, _ = env.step(K.dot(s) + noises[total_steps])
+        a = K.dot(s) + noises[total_steps]
+        s, r, done, _ = env.step(a)
+        #if not np.all(s == s) or not np.all(r == r):
+            #import ipdb; ipdb.set_trace()
         cost -= r
         total_steps += 1
     return cost, total_steps
@@ -26,17 +28,19 @@ def rollout(env, K, noises):
 # return a list of all results over all seeds
 def over_seeds(f, num_seeds=100):
     results = []
-    for i in range(num_seeds):
+    for i in range(20, num_seeds):
         print('[over_seeds] running the {} seed'.format(i))
         set_seed(i)
         results.append(f())
+        
     return results
 
 # error bar: https://stackoverflow.com/questions/12957582/plot-yerr-xerr-as-shaded-region-rather-than-error-bars
-def compare_samples(num_trajs=1000, savefig=False):
+def compare_samples(horizon=100, num_trajs=1000, seed=0, save=False):
+    set_seed(seed)
     env = LQR(
         lims=10,
-        max_steps=H,
+        max_steps=horizon,
         Sigma_s_kappa=1.0,
         Q_kappa=1.0,
         P_kappa=1.0,
@@ -72,23 +76,24 @@ def compare_samples(num_trajs=1000, savefig=False):
 
     mc_errors = (mc_means - expected_cost) ** 2
     rqmc_errors = (rqmc_means - expected_cost) ** 2
-    if savefig:
-        plt.figure(figsize=(1 * L, 1 * L))
-        plt.semilogy((mc_means - expected_cost)**2, label='MC')
-        plt.semilogy((rqmc_means - expected_cost)**2, label='RQMC')
-        plt.legend()
-        plt.title("Var(J) of K_opt, H={}, num_trajs={}".format(H, num_trajs))
-        plt.savefig("./comparing_samples.png")
-    return mc_errors, rqmc_errors
+    save_fn = 'one_seed/H-{}.num_traj-{}.{}.pkl'.format(horizon, num_trajs, seed)
+    info = dict(mc_costs=mc_costs, rqmc_costs=rqmc_costs, save_fn=save_fn)
+    if save:
+        with open(save_fn, 'wb') as f:
+            dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, info=info), f)
+    return mc_errors, rqmc_errors, info
 
 ### procedures ###
-def comparing_over_seeds(num_seeds=200):
-    results = over_seeds(lambda: compare_samples(2500), num_seeds)
+def comparing_over_seeds(num_seeds=200, n_trajs=2500):
+    results = over_seeds(lambda: compare_samples(n_trajs), num_seeds)
     print('mc has larger variance in {}/{}'.format(sum([mc[-1] > rqmc[-1] for mc, rqmc in results], 0), num_seeds))
     with open('comparing_over_seeds.pkl', 'wb') as f:
         dill.dump(results, f)
 
 if __name__ == "__main__":
-    #set_seed(0)
-    compare_samples(20000, savefig=False)
+    with slaunch_ipdb_on_exception():
+        set_seed(0)
+        compare_samples(5, 30000, save=True)
     #comparing_over_seeds()
+
+
