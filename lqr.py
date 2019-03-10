@@ -48,10 +48,29 @@ class LQR(gym.Env):
         * B_norm (float) L2-norm of the B matrix.
         * Q_kappa (float) Condition number of matrix Q.
         * P_kappa (float) Condition number of matrix P.
-        * Sigma_a_kappa (float) Condition number of matrix Sigma_s.
+        * Sigma_s_kappa (float) Condition number of matrix Sigma_s.
     """
 
-    def __init__(self, N=5, M=5, lims=5.0, max_steps=10000, **kwargs):
+    def __init__(
+        self,
+        N=5,
+        M=5,
+        lims=5.0,
+        max_steps=10000,
+        A=None,
+        A_norm=None,
+        B=None,
+        B_norm=None,
+        P=None,
+        P_kappa=1.0,
+        Q=None,
+        Q_kappa=1.0,
+        Sigma_s=None,
+        Sigma_s_kappa=1.0,
+        Sigma_s_scale=1.0,
+        #Sigma_a=None,
+        #Sigma_a_kappa=1.0,
+    ):
         super(LQR, self).__init__()
         state_lims = lims * np.ones(N)
         action_lims = lims * np.ones(M)
@@ -66,39 +85,24 @@ class LQR(gym.Env):
         self.action_space = spaces.Box(low=-action_lims,
                                        high=action_lims,
                                        dtype=np.float32)
-        # Create default values
-        if 'A' in kwargs:
-            self.A = kwargs.pop('A')
+        self.A = A if A is not None else np.random.randn(N, N)
+        if A_norm is not None:
+            self.A *= A_norm / np.linalg.norm(self.A)
+        self.B = B if B is not None else np.random.randn(N, M)
+        if B_norm is not None:
+            self.B *= B_norm / np.linalg.norm(self.B)
+        self.P = P if P is not None else random_psd(M, kappa=P_kappa, semi=False)
+        self.Q = Q if Q is not None else random_psd(N, kappa=Q_kappa, semi=True)
+        self.Sigma_s = Sigma_s if Sigma_s is not None else random_psd(N, kappa=Sigma_s_kappa, semi=True)
+        if Sigma_s_scale:
+            self.Sigma_s *= Sigma_s_scale ** 2
+            self.Sigma_s_L = np.linalg.cholesky(self.Sigma_s)
         else:
-            self.A = np.random.randn(N, N)
-        if 'A_norm' in kwargs:
-            self.A *= kwargs.get('A_norm') / np.linalg.norm(self.A)
-        if 'B' in kwargs:
-            self.B = kwargs.pop('B')
-        else:
-            self.B = np.random.randn(N, M)
-        if 'B_norm' in kwargs:
-            self.B *= kwargs.get('B_norm') / np.linalg.norm(self.B)
+            self.Sigma_s = np.zeros((N, N))
+            self.Sigma_s_L = np.zeros((N, N))
+        #self.Sigma_a = Sigma_a if Sigma_a is not None else random_psd(M, kappa=Sigma_a_kappa, semi=True)
+        #self.Sigma_a_L = np.linalg.cholesky(self.Sigma_a)
 
-        if 'P' in kwargs:
-            self.P = kwargs.get('P')
-        else:
-            kappa = kwargs.pop('P_kappa', None)
-            self.P = random_psd(M, kappa=kappa, semi=False)
-
-        if 'Q' in kwargs:
-            self.Q = kwargs.get('Q')
-        else:
-            kappa = kwargs.pop('Q_kappa', None)
-            self.Q = random_psd(N, kappa=kappa, semi=True)
-
-        if 'Sigma_s' in kwargs:
-            self.Sigma_s = kwargs.get('Sigma_s')
-        else:
-            kappa = kwargs.pop('Sigma_a_kappa', None)
-            self.Sigma_s = random_psd(N, kappa=kappa, semi=True)
-        # Cholesky factor of Sigma_s
-        self.Sigma_s_L = np.linalg.cholesky(self.Sigma_s)
 
     def stable_controller(self, stability=0.5):
         """
@@ -117,7 +121,7 @@ class LQR(gym.Env):
         K = np.dot(B_inv, (np.eye(self.M, self.N) * stability - self.A))
         return K
 
-    def optimal_controller(self):
+    def optimal_controller(self): # does not depend on noise...
         K = solve_discrete_are(self.A, self.B, self.Q, self.P)
         L = -np.linalg.inv(self.B.T @ K @ self.B + self.P) @ self.B.T @ K @ self.A
         return L
@@ -129,7 +133,8 @@ class LQR(gym.Env):
         return self.state
 
     # you need to input a stable control matrix K
-    def expected_cost(self, K):
+    # only suppose independent action noise, need to input the covariance
+    def expected_cost(self, K, Sigma_a):
         x0 = self.init_state
         cost =  0.0
         m_list = [self.Q + K.T.dot(self.P).dot(K)]
@@ -137,14 +142,15 @@ class LQR(gym.Env):
         for i in range(self.max_steps-1):
             m_list.append(C.T.dot(m_list[-1]).dot(C))
         for t in range(self.max_steps):
-            cost += x0.dot(m_list[t]).dot(x0) + np.trace(self.P)
+            cost += x0.dot(m_list[t]).dot(x0) + np.trace(self.P @ Sigma_a)
             for i in range(t):
-                cost += np.trace(self.B.T @ m_list[t-1-i] @ self.B)
+                cost += np.trace(self.B.T @ m_list[t-1-i] @ self.B @ Sigma_a)
+                cost += np.trace(m_list[t-1-i] @ self.Sigma_s) # environmental noise
         return cost
 
     def step(self, action):
         noise = self.Sigma_s_L.dot(np.random.randn(self.N))
-        next_state = self.A.dot(self.state) + self.B.dot(action)# + noise
+        next_state = self.A.dot(self.state) + self.B.dot(action) + noise
         state_cost = self.state.dot(self.Q).dot(self.state)
         action_cost = action.dot(self.P).dot(action)
         reward = - state_cost - action_cost
@@ -179,9 +185,9 @@ if __name__ == '__main__':
 
     # Testing the environment
     H = 10000
-    env = LQR(lims=1,
+    env = LQR(lims=10,
               max_steps=H,
-              Sigma_a_kappa=1.0,
+              Sigma_s_kappa=1.0,
               Q_kappa=1.0,
               P_kappa=1.0,
               A_norm=1.0,
