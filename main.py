@@ -2,13 +2,17 @@ import numpy as np
 import torch
 import dill
 import matplotlib.pyplot as plt
+import argparse
 from lqr import LQR
 from utils import set_seed
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 from ipdb import slaunch_ipdb_on_exception
 
-L = 5
+def get_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-H', type=int, default=1)
+    return parser.parse_args()
 
 def rollout(env, K, noises):
     cost = 0.0
@@ -91,9 +95,11 @@ def comparing_over_seeds(num_seeds=200, n_trajs=2500):
         dill.dump(results, f)
 
 if __name__ == "__main__":
+    args = get_args()
     with slaunch_ipdb_on_exception():
-        set_seed(0)
-        compare_samples(5, 30000, save=True)
+        for seed in range(20):
+            print('running the {}-th seed'.format(seed))
+            compare_samples(args.H, 100000, seed=seed, save=True)
     #comparing_over_seeds()
 
 
