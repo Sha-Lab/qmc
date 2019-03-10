@@ -1,13 +1,16 @@
-import numpy as np
 import torch
 import dill
-import matplotlib.pyplot as plt
 import argparse
+import seaborn as sns
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from ipdb import slaunch_ipdb_on_exception
+
 from lqr import LQR
 from utils import set_seed
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
-from ipdb import slaunch_ipdb_on_exception
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -40,7 +43,7 @@ def over_seeds(f, num_seeds=100):
     return results
 
 # error bar: https://stackoverflow.com/questions/12957582/plot-yerr-xerr-as-shaded-region-rather-than-error-bars
-def compare_samples(horizon=100, num_trajs=1000, seed=0, save=False):
+def compare_samples(horizon=100, num_trajs=1000, noise_scale=0.0, seed=0, save=False, show_fig=False):
     set_seed(seed)
     env = LQR(
         lims=10,
@@ -50,9 +53,10 @@ def compare_samples(horizon=100, num_trajs=1000, seed=0, save=False):
         P_kappa=1.0,
         A_norm=1.0,
         B_norm=1.0,
-        Sigma_s_scale=0.0,
+        Sigma_s_scale=noise_scale,
     )
     K = env.optimal_controller()
+    print(env.Sigma_s)
 
     mc_costs = []
     mc_means = []
@@ -85,6 +89,20 @@ def compare_samples(horizon=100, num_trajs=1000, seed=0, save=False):
     if save:
         with open(save_fn, 'wb') as f:
             dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, info=info), f)
+    if show_fig:
+        mc_data = pd.DataFrame({
+            'name': 'mc',
+            'x': np.arange(len(mc_errors)),
+            'error': mc_errors,
+        })
+        rqmc_data = pd.DataFrame({
+            'name': 'rqmc',
+            'x': np.arange(len(rqmc_errors)),
+            'error': rqmc_errors,
+        })
+        plot = sns.relplot(x='x', y='error', hue='name', kind='line', data=pd.concat([mc_data, rqmc_data]))
+        plot.set(yscale='log')
+
     return mc_errors, rqmc_errors, info
 
 ### procedures ###
@@ -97,9 +115,9 @@ def comparing_over_seeds(num_seeds=200, n_trajs=2500):
 if __name__ == "__main__":
     args = get_args()
     with slaunch_ipdb_on_exception():
-        for seed in range(20):
-            print('running the {}-th seed'.format(seed))
-            compare_samples(args.H, 100000, seed=seed, save=True)
+        #for seed in range(20):
+            #print('running the {}-th seed'.format(seed))
+            #compare_samples(args.H, 100000, seed=seed, save=True)
     #comparing_over_seeds()
 
 
