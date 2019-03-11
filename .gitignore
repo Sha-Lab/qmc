@@ -105,3 +105,5 @@ old_tf_log
 exps
 *.lock
 *.cur
+
+data

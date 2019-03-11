@@ -148,6 +148,26 @@ class LQR(gym.Env):
                 cost += np.trace(m_list[t-1-i] @ self.Sigma_s) # environmental noise
         return cost
 
+    # expected state covariance at time t, used for expected policy gradient
+    def expected_state_cov(self, t, K, Sigma_a):
+        abk_list = [self.A + self.B @ K]
+        for i in range(t):
+            abk_list.append(abk_list[-1] @ abs_list[0])
+        cov = abk_list[t] @ np.outer(self.init_state, self.init_state) @ abk_list[t].T
+        for i in range(t):
+            c_s = abk_list[t-1-i] @ self.Sigma_s @ abk_list[t-1-i].T
+            c_a = abk_list[t-1-i] @ B @ Sigma_a @ B.T @ abk_list[t-1-i].T
+            cov += cs + c_a
+        return cov
+
+    def expected_policy_gradient(self, K, Sigma_a):
+        grad = 0.0
+        for t in range(self.max_steps):
+            grad += 2
+            for tt in range(t+1, self.max_steps):
+                pass
+        return np.linalg.inv(Sigma_a) @ grad
+
     def step(self, action):
         noise = self.Sigma_s_L.dot(np.random.randn(self.N))
         next_state = self.A.dot(self.state) + self.B.dot(action) + noise
