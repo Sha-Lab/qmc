@@ -12,7 +12,6 @@ from utils import set_seed
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
-
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-H', type=int, default=1)
@@ -47,6 +46,7 @@ def compare_samples(horizon=100, num_trajs=1000, noise_scale=0.0, seed=0, save_d
         Sigma_s_scale=noise_scale,
     )
     K = env.optimal_controller()
+    print(env.Sigma_s)
 
     mc_costs = []
     mc_means = []
@@ -120,6 +120,8 @@ if __name__ == "__main__":
             ),
             num_seeds=100,
         )
-    #comparing_over_seeds()
+        #for seed in range(20):
+            #print('running the {}-th seed'.format(seed))
+            #compare_samples(args.H, 100000, seed=seed, save=True)
 
 
