@@ -1,0 +1,7 @@
+pytorch==1.0
+dill
+matplotlib
+numba
+particles
+ipdb
+
