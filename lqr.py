@@ -78,7 +78,7 @@ class LQR(gym.Env):
         self.M = M
         self.max_steps = max_steps
         self.lims = lims
-        self.init_state = np.ones(N) * 0.1 * lims
+        self.init_state = np.ones(N) * 0.01 * lims
         self.observation_space = spaces.Box(low=-state_lims,
                                             high=state_lims,
                                             dtype=np.float32)
