@@ -57,9 +57,16 @@ class Normal_RQMC(Distribution):
         return -((value - self.loc) ** 2) / (2 * var) - log_scale - math.log(math.sqrt(2 * math.pi))
 
     def icdf(self, value):
+        '''
+        TODO: Fixed inf bug by a dirty hack!
+        We replace Inf of torch.erfinv by torch.erfinv(torch.tensor(0.99999997))
+
+        We should implement our own icdf to fix the bug properly.
+        '''
         if self._validate_args:
             self._validate_sample(value)
-        res = self.loc + self.scale * torch.erfinv(2 * value - 1) * math.sqrt(2) 
+        res = self.loc + self.scale * torch.erfinv(2 * value - 1) * math.sqrt(2)
+        res = torch.clamp(res, -5.3, 5.3)
         #if torch.any(res == float('inf')) or torch.any(res == float('-inf')): import ipdb; ipdb.set_trace()
         return res
 
