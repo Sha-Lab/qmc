@@ -150,22 +150,29 @@ class LQR(gym.Env):
 
     # expected state covariance at time t, used for expected policy gradient
     def expected_state_cov(self, t, K, Sigma_a):
-        abk_list = [self.A + self.B @ K]
-        for i in range(t):
-            abk_list.append(abk_list[-1] @ abs_list[0])
+        abk = self.A + self.B @ K
+        abk_list = [np.identity(self.N)]
+        for _ in range(t):
+            abk_list.append(abk @ abk_list[-1])
         cov = abk_list[t] @ np.outer(self.init_state, self.init_state) @ abk_list[t].T
         for i in range(t):
             c_s = abk_list[t-1-i] @ self.Sigma_s @ abk_list[t-1-i].T
-            c_a = abk_list[t-1-i] @ B @ Sigma_a @ B.T @ abk_list[t-1-i].T
-            cov += cs + c_a
+            c_a = abk_list[t-1-i] @ self.B @ Sigma_a @ self.B.T @ abk_list[t-1-i].T
+            cov += c_s + c_a
         return cov
 
     def expected_policy_gradient(self, K, Sigma_a):
+        conv = [self.expected_state_cov(t, K, Sigma_a) for t in range(self.max_steps)]
+        abk = self.A + self.B @ K
+        qkp = self.Q + K.T @ self.P @ K
+        abk_list = [np.identity(self.N)]
+        for _ in range(self.max_steps):
+            abk_list.append(abk @ abk_list[-1])
         grad = 0.0
         for t in range(self.max_steps):
-            grad += 2
+            grad += 2 * Sigma_a @ self.P @ K @ conv[t]
             for tt in range(t+1, self.max_steps):
-                pass
+                grad += 2 * Sigma_a @ self.B.T @ abk_list[tt-1-t].T @ qkp @ abk_list[tt-t] @ conv[t]
         return np.linalg.inv(Sigma_a) @ grad
 
     def step(self, action):

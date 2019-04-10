@@ -6,6 +6,7 @@ import seaborn as sns
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 from ipdb import slaunch_ipdb_on_exception
 
 from lqr import LQR
@@ -55,7 +56,7 @@ def compare_cost(horizon=100, num_trajs=1000, noise_scale=0.0, seed=0, save_dir=
     mc_costs = []
     mc_means = []
     for i in range(num_trajs):
-        noises = np.random.randn(env.max_steps, env.N)
+        noises = np.random.randn(env.max_steps, env.M)
         #cost, total_steps = rollout(env, K, noises)
         _, _, rewards = rollout(env, K, noises)
         mc_costs.append(-np.array(rewards).sum())
@@ -63,12 +64,12 @@ def compare_cost(horizon=100, num_trajs=1000, noise_scale=0.0, seed=0, save_dir=
 
     rqmc_costs = []
     rqmc_means = []
-    loc = torch.zeros(env.max_steps * env.N)
-    scale = torch.ones(env.max_steps * env.N)
+    loc = torch.zeros(env.max_steps * env.M)
+    scale = torch.ones(env.max_steps * env.M)
     rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([num_trajs])).data.numpy()
     for i in range(num_trajs):
         #cost, total_steps = rollout(env, K, rqmc_noises[i].reshape(env.max_steps, env.N))
-        _, _, rewards = rollout(env, K, rqmc_noises[i].reshape(env.max_steps, env.N))
+        _, _, rewards = rollout(env, K, rqmc_noises[i].reshape(env.max_steps, env.M))
         rqmc_costs.append(-np.array(rewards).sum())
         rqmc_means.append(np.mean(rqmc_costs))
 
@@ -97,7 +98,7 @@ def compare_cost(horizon=100, num_trajs=1000, noise_scale=0.0, seed=0, save_dir=
     return mc_errors, rqmc_errors, info
 
 # TODO: make sure compare_cost produce the same result
-# TODO: write compare_cov to verify the calculation
+# TODO: (done) write compare_cov to verify the calculation
 # TODO: write compare_grad to verify calculation
 def compare_cov(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, show_fig=False):
     set_seed(seed)
@@ -115,27 +116,28 @@ def compare_cov(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, show
     Sigma_a = np.diag(np.ones(env.M))
     print(env.Sigma_s)
     mc_states = []
-    for i in range(num_trajs):
-        noises = np.random.randn(env.max_steps, env.N)
+    for i in tqdm(range(num_trajs), 'mc'):
+        noises = np.random.randn(env.max_steps, env.M)
         states, _, rewards = rollout(env, K, noises)
-        mc_states.append(mc_states)
-    mc_sc = [np.matmul(np.expand_dims(states, 2), np.expand_dims(states, 1)) for states in mc_states]
-    mc_means = np.cumsum(mc_sc, axis=0) / np.arange(1, len(mc_sc) + 1)[:, np.newaxis, np.newaxis]
+        mc_states.append(states)
+    mc_states = np.asarray(mc_states)
+    mc_sc = np.matmul(np.expand_dims(mc_states, 3), np.expand_dims(mc_states, 2))
+    mc_means = np.cumsum(mc_sc, axis=0) / np.arange(1, len(mc_sc) + 1)[:, np.newaxis, np.newaxis, np.newaxis]
     
     rqmc_states = []
-    loc = torch.zeros(env.max_steps * env.N)
-    scale = torch.ones(env.max_steps * env.N)
+    loc = torch.zeros(env.max_steps * env.M)
+    scale = torch.ones(env.max_steps * env.M)
     rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([num_trajs])).data.numpy()
-    for i in range(num_trajs):
-        states, _, rewards = rollout(env, K, rqmc_noises[i].reshape(env.max_steps, env.N))
+    for i in tqdm(range(num_trajs), 'rqmc'):
+        states, _, rewards = rollout(env, K, rqmc_noises[i].reshape(env.max_steps, env.M))
         rqmc_states.append(states)
-    rqmc_sc = [np.matmul(np.expand_dims(states, 2), np.expand_dims(states, 1)) for states in rqmc_states]
-    rqmc_means = np.cumsum(rqmc_sc, axis=0) / np.arange(1, len(rqmc_sc) + 1)[:, np.newaxis, np.newaxis]
+    rqmc_sc = np.matmul(np.expand_dims(rqmc_states, 3), np.expand_dims(rqmc_states, 2))
+    rqmc_means = np.cumsum(rqmc_sc, axis=0) / np.arange(1, len(rqmc_sc) + 1)[:, np.newaxis, np.newaxis, np.newaxis]
 
-    expected_sc = np.array([env.expected_state_cov(t, K, Sigma_a) for t in range(env.max_steps)])
+    expected_sc = np.asarray([env.expected_state_cov(t, K, Sigma_a) for t in range(env.max_steps)])
 
-    mc_errors = ((mc_sc - expected_sc) ** 2).reshape(*mc_sc.shape[:2], -1).mean(2)
-    rqmc_errors = ((rqmc_sc - expected_sc) ** 2).reshape(*rqmc_sc.shape[:2], -1).mean(2)
+    mc_errors = ((mc_means - expected_sc) ** 2).reshape(*mc_sc.shape[:2], -1).mean(2)
+    rqmc_errors = ((rqmc_means - expected_sc) ** 2).reshape(*rqmc_sc.shape[:2], -1).mean(2)
     if save_dir is not None:
         with open(Path(save_dir, save_fn), 'wb') as f:
             info = dict(horizon=horizon, num_trajs=num_trajs, seed=seed)
@@ -144,15 +146,16 @@ def compare_cov(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, show
         mc_data = pd.DataFrame({
             'name': 'mc',
             'x': np.arange(len(mc_errors)),
-            'error': mc_errors,
+            'error': mc_errors[:, -1],
         })
         rqmc_data = pd.DataFrame({
             'name': 'rqmc',
             'x': np.arange(len(rqmc_errors)),
-            'error': rqmc_errors,
+            'error': rqmc_errors[:, -1],
         })
         plot = sns.lineplot(x='x', y='error', hue='name', data=pd.concat([mc_data, rqmc_data]))
         plot.set(yscale='log')
+        plt.show()
 
 ### procedures ###
 def comparing_over_seeds(save_fn, sample_config, num_seeds=200):
@@ -167,12 +170,9 @@ def comparing_over_seeds(save_fn, sample_config, num_seeds=200):
 
 
 if __name__ == "__main__":
+    args = get_args()
     with slaunch_ipdb_on_exception():
-        compare_cov(100, 1000)
-    #cmd_run()
-
-    #args = get_args()
-    #with slaunch_ipdb_on_exception():
+        compare_cov(100, 5000, show_fig=True)
         #for seed in range(100):
             #print('running the {}-th seed'.format(seed))
             #compare_cost(args.H, 100000, seed=seed, save=True)
