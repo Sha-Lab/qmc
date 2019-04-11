@@ -173,7 +173,7 @@ class LQR(gym.Env):
             grad += 2 * Sigma_a @ self.P @ K @ conv[t]
             for tt in range(t+1, self.max_steps):
                 grad += 2 * Sigma_a @ self.B.T @ abk_list[tt-1-t].T @ qkp @ abk_list[tt-t] @ conv[t]
-        return np.linalg.inv(Sigma_a) @ grad
+        return -np.linalg.inv(Sigma_a) @ grad # in derivation I use formula for cost
 
     def step(self, action):
         noise = self.Sigma_s_L.dot(np.random.randn(self.N))
