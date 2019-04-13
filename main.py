@@ -10,7 +10,7 @@ from tqdm import tqdm
 from ipdb import slaunch_ipdb_on_exception
 
 from lqr import LQR
-from utils import set_seed, cmd_run, cmd
+from utils import set_seed, rollout, mse
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
@@ -23,23 +23,6 @@ def get_args():
     parser.add_argument('-H', type=int, default=1)
     parser.add_argument('--noise', type=float, default=0.0)
     return parser.parse_args()
-
-def rollout(env, K, noises):
-    states = []
-    actions = []
-    rewards = []
-    done = False
-    s = env.reset()
-    cur_step = 0
-    while not done:
-        a = K.dot(s) + noises[cur_step]
-        next_s, r, done, _ = env.step(a)
-        states.append(s)
-        actions.append(a)
-        rewards.append(r)
-        s = next_s
-        cur_step += 1
-    return np.asarray(states), np.asarray(actions), np.asarray(rewards)
 
 # error bar: https://stackoverflow.com/questions/12957582/plot-yerr-xerr-as-shaded-region-rather-than-error-bars
 def compare_cost(horizon=100, num_trajs=1000, noise_scale=0.0, seed=0, save_dir=None, show_fig=False):
@@ -219,6 +202,89 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
         plot.set(yscale='log')
         plt.show()
 
+def learning(n_iters, n_trajs, lr=0.0005, horizon=5, noise_scale=0.0,seed=0):
+    set_seed(seed)
+    env = LQR(
+        lims=100,
+        max_steps=horizon,
+        Sigma_s_kappa=1.0,
+        Q_kappa=1.0,
+        P_kappa=1.0,
+        A_norm=1.0,
+        B_norm=1.0,
+        Sigma_s_scale=noise_scale,
+    )
+    Sigma_a = np.diag(np.ones(env.M))
+    Sigma_a_inv = np.linalg.inv(Sigma_a)
+    init_K = np.random.randn(env.N, env.M)
+    # mc
+    K = np.copy(init_K)
+    mc_returns = []
+    for i in range(n_iters):
+        mc_grad = []
+        returns = []
+        for _ in range(n_trajs):
+            noises = np.random.randn(env.max_steps, env.M)
+            states, actions, rewards = rollout(env, K, noises)
+            mc_grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
+            returns.append(rewards.sum())
+        mc_grad = np.mean(mc_grad, axis=0)
+        grad_error = mse(mc_grad, env.expected_policy_gradient(K, Sigma_a))
+        K += lr * mc_grad
+        mc_returns.append(np.mean(returns))
+        print('iter {}, return: {}, grad error: {}, steps: {}'.format(i, mc_returns[-1], grad_error, len(states)))
+        if i == n_iters - 1: print(rewards)
+    # rqmc
+    K = np.copy(init_K)
+    rqmc_returns = []
+    loc = torch.zeros(env.max_steps * env.M)
+    scale = torch.ones(env.max_steps * env.M)
+    for i in range(n_iters):
+        rqmc_grad = []
+        returns = []
+        rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([n_trajs])).data.numpy()
+        for j in range(n_trajs):
+            states, actions, rewards = rollout(env, K, rqmc_noises[j].reshape(env.max_steps, env.M))
+            rqmc_grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
+            returns.append(rewards.sum())
+        rqmc_grad = np.mean(rqmc_grad, axis=0)
+        grad_error = mse(rqmc_grad, env.expected_policy_gradient(K, Sigma_a))
+        K += lr * rqmc_grad
+        rqmc_returns.append(np.mean(returns))
+        print('iter {}, return: {}, grad error: {}'.format(i, rqmc_returns[-1], grad_error))
+        if i == n_iters - 1: print(rewards) # last step trajectory
+    # full
+    K = np.copy(init_K)
+    full_returns = []
+    for i in range(n_iters):
+        returns = []
+        for j in range(n_trajs):
+            noises = np.random.randn(env.max_steps, env.M)
+            states, actions, rewards = rollout(env, K, noises)
+            returns.append(rewards.sum())
+        K += lr * env.expected_policy_gradient(K, Sigma_a)
+        full_returns.append(np.mean(returns))
+        print('iter {}, return: {}'.format(i, full_returns[-1]))
+        if i == n_iters - 1: print(rewards) # last step trajectory
+    mc_data = pd.DataFrame({
+        'name': 'mc',
+        'x': np.arange(len(mc_returns)),
+        'return': mc_returns,
+    }) 
+    rqmc_data = pd.DataFrame({
+        'name': 'rqmc',
+        'x': np.arange(len(rqmc_returns)),
+        'return': rqmc_returns,
+    }) 
+    full_data = pd.DataFrame({
+        'name': 'full',
+        'x': np.arange(len(full_returns)),
+        'return': full_returns,
+    })
+    plot = sns.lineplot(x='x', y='return', hue='name', data=pd.concat([mc_data, rqmc_data, full_data]))
+    plt.show()
+
+
 ### procedures ###
 def comparing_over_seeds(save_fn, sample_config, num_seeds=200):
     results = []
@@ -233,8 +299,9 @@ def comparing_over_seeds(save_fn, sample_config, num_seeds=200):
 if __name__ == "__main__":
     args = get_args()
     with slaunch_ipdb_on_exception():
+        #learning(100, 1000)
         #compare_cov(100, 5000, show_fig=True)
-        compare_grad(20, 500000, show_fig=True)
+        compare_grad(10, 5000, show_fig=True)
         #for seed in range(100):
             #print('running the {}-th seed'.format(seed))
             #compare_cost(args.H, 100000, seed=seed, save=True)
