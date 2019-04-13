@@ -201,6 +201,7 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
         plot = sns.lineplot(x='x', y='error', hue='name', data=pd.concat([mc_data, rqmc_data]))
         plot.set(yscale='log')
         plt.show()
+    return mc_errors, rqmc_errors, info
 
 def learning(n_iters, n_trajs, lr=0.0005, horizon=5, noise_scale=0.0,seed=0):
     set_seed(seed)
@@ -284,24 +285,34 @@ def learning(n_iters, n_trajs, lr=0.0005, horizon=5, noise_scale=0.0,seed=0):
     plot = sns.lineplot(x='x', y='return', hue='name', data=pd.concat([mc_data, rqmc_data, full_data]))
     plt.show()
 
-
-### procedures ###
-def comparing_over_seeds(save_fn, sample_config, num_seeds=200):
+def comparing_over_seeds(save_fn, sample_f, sample_config, num_seeds=200):
     results = []
     for seed in range(num_seeds):
         print('running seed {}/{}'.format(seed, num_seeds))
-        result = compare_cost(seed=seed, **sample_config)
+        result = sample_f(seed=seed, **sample_config)
         results.append(result)
-    #print('mc has larger variance in {}/{}'.format(sum([mc[-1] > rqmc[-1] for mc, rqmc in results], 0), num_seeds))
     with open(save_fn, 'wb') as f:
         dill.dump(results, f)
+
+### procedures ###
+def compare_grad_over_seeds():
+    sample_config = dict(
+        horizon=10,
+        num_trajs=100000,
+    )
+    comparing_over_seeds(
+        'data/compare_grad-{}-{}'.format(horizon, num_trajs),
+        compare_grad,
+        sample_config,
+    )
 
 if __name__ == "__main__":
     args = get_args()
     with slaunch_ipdb_on_exception():
+        compare_grad_over_seeds()
         #learning(100, 1000)
         #compare_cov(100, 5000, show_fig=True)
-        compare_grad(10, 5000, show_fig=True)
+        #compare_grad(10, 5000, show_fig=True)
         #for seed in range(100):
             #print('running the {}-th seed'.format(seed))
             #compare_cost(args.H, 100000, seed=seed, save=True)
@@ -314,8 +325,4 @@ if __name__ == "__main__":
             #),
             #num_seeds=100,
         #)
-        #for seed in range(20):
-            #print('running the {}-th seed'.format(seed))
-            #compare_cost(args.H, 100000, seed=seed, save=True)
-
 
