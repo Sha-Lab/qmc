@@ -29,6 +29,7 @@ def compare_cost(horizon=100, num_trajs=1000, noise_scale=0.0, seed=0, save_dir=
     set_seed(seed)
     env = LQR(
         lims=100,
+        init_scale=1.0,
         max_steps=horizon,
         Sigma_s_kappa=1.0,
         Q_kappa=1.0,
@@ -88,6 +89,7 @@ def compare_cov(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, show
     set_seed(seed)
     env = LQR(
         lims=100,
+        init_scale=1.0,
         max_steps=horizon,
         Sigma_s_kappa=1.0,
         Q_kappa=1.0,
@@ -145,6 +147,7 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
     set_seed(seed)
     env = LQR(
         lims=100,
+        init_scale=1.0,
         max_steps=horizon,
         Sigma_s_kappa=1.0,
         Q_kappa=1.0,
@@ -206,7 +209,6 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
 def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, show_fig=False):
     set_seed(seed)
     env = LQR(
-        lims=100,
         max_steps=horizon,
         Sigma_s_kappa=1.0,
         Q_kappa=1.0,
