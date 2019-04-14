@@ -183,9 +183,9 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
 
     mc_errors = ((mc_means - expected_grad) ** 2).reshape(mc_means.shape[0], -1).mean(1) # why the sign is reversed?
     rqmc_errors = ((rqmc_means - expected_grad) ** 2).reshape(rqmc_means.shape[0], -1).mean(1)
+    info = dict(horizon=horizon, num_trajs=num_trajs, seed=seed)
     if save_dir is not None:
         with open(Path(save_dir, save_fn), 'wb') as f:
-            info = dict(horizon=horizon, num_trajs=num_trajs, seed=seed)
             dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, info=info), f)
     if show_fig:
         mc_data = pd.DataFrame({
@@ -203,7 +203,7 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
         plt.show()
     return mc_errors, rqmc_errors, info
 
-def learning(n_iters, n_trajs, lr=0.0005, horizon=5, noise_scale=0.0,seed=0):
+def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, show_fig=False):
     set_seed(seed)
     env = LQR(
         lims=100,
@@ -221,7 +221,7 @@ def learning(n_iters, n_trajs, lr=0.0005, horizon=5, noise_scale=0.0,seed=0):
     # mc
     K = np.copy(init_K)
     mc_returns = []
-    for i in range(n_iters):
+    for i in tqdm(range(n_iters), 'mc'):
         mc_grad = []
         returns = []
         for _ in range(n_trajs):
@@ -229,18 +229,19 @@ def learning(n_iters, n_trajs, lr=0.0005, horizon=5, noise_scale=0.0,seed=0):
             states, actions, rewards = rollout(env, K, noises)
             mc_grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
             returns.append(rewards.sum())
+            assert len(states) == horizon, 'the length of trajecoty is wrong!'
         mc_grad = np.mean(mc_grad, axis=0)
         grad_error = mse(mc_grad, env.expected_policy_gradient(K, Sigma_a))
         K += lr * mc_grad
         mc_returns.append(np.mean(returns))
-        print('iter {}, return: {}, grad error: {}, steps: {}'.format(i, mc_returns[-1], grad_error, len(states)))
-        if i == n_iters - 1: print(rewards)
+        #print('iter {}, return: {}, grad error: {}, steps: {}'.format(i, mc_returns[-1], grad_error, len(states)))
+        #if i == n_iters - 1: print(rewards)
     # rqmc
     K = np.copy(init_K)
     rqmc_returns = []
     loc = torch.zeros(env.max_steps * env.M)
     scale = torch.ones(env.max_steps * env.M)
-    for i in range(n_iters):
+    for i in tqdm(range(n_iters), 'rqmc'):
         rqmc_grad = []
         returns = []
         rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([n_trajs])).data.numpy()
@@ -248,42 +249,47 @@ def learning(n_iters, n_trajs, lr=0.0005, horizon=5, noise_scale=0.0,seed=0):
             states, actions, rewards = rollout(env, K, rqmc_noises[j].reshape(env.max_steps, env.M))
             rqmc_grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
             returns.append(rewards.sum())
+            assert len(states) == horizon, 'the length of trajecoty is wrong!'
         rqmc_grad = np.mean(rqmc_grad, axis=0)
         grad_error = mse(rqmc_grad, env.expected_policy_gradient(K, Sigma_a))
         K += lr * rqmc_grad
         rqmc_returns.append(np.mean(returns))
-        print('iter {}, return: {}, grad error: {}'.format(i, rqmc_returns[-1], grad_error))
-        if i == n_iters - 1: print(rewards) # last step trajectory
+        #print('iter {}, return: {}, grad error: {}'.format(i, rqmc_returns[-1], grad_error))
+        #if i == n_iters - 1: print(rewards) # last step trajectory
     # full
     K = np.copy(init_K)
     full_returns = []
-    for i in range(n_iters):
+    for i in tqdm(range(n_iters), 'full'):
         returns = []
         for j in range(n_trajs):
             noises = np.random.randn(env.max_steps, env.M)
             states, actions, rewards = rollout(env, K, noises)
             returns.append(rewards.sum())
+            assert len(states) == horizon, 'the length of trajecoty is wrong!'
         K += lr * env.expected_policy_gradient(K, Sigma_a)
         full_returns.append(np.mean(returns))
-        print('iter {}, return: {}'.format(i, full_returns[-1]))
-        if i == n_iters - 1: print(rewards) # last step trajectory
-    mc_data = pd.DataFrame({
-        'name': 'mc',
-        'x': np.arange(len(mc_returns)),
-        'return': mc_returns,
-    }) 
-    rqmc_data = pd.DataFrame({
-        'name': 'rqmc',
-        'x': np.arange(len(rqmc_returns)),
-        'return': rqmc_returns,
-    }) 
-    full_data = pd.DataFrame({
-        'name': 'full',
-        'x': np.arange(len(full_returns)),
-        'return': full_returns,
-    })
-    plot = sns.lineplot(x='x', y='return', hue='name', data=pd.concat([mc_data, rqmc_data, full_data]))
-    plt.show()
+        #print('iter {}, return: {}'.format(i, full_returns[-1]))
+        #if i == n_iters - 1: print(rewards) # last step trajectory
+    if show_fig:
+        mc_data = pd.DataFrame({
+            'name': 'mc',
+            'x': np.arange(len(mc_returns)),
+            'return': mc_returns,
+        }) 
+        rqmc_data = pd.DataFrame({
+            'name': 'rqmc',
+            'x': np.arange(len(rqmc_returns)),
+            'return': rqmc_returns,
+        }) 
+        full_data = pd.DataFrame({
+            'name': 'full',
+            'x': np.arange(len(full_returns)),
+            'return': full_returns,
+        })
+        plot = sns.lineplot(x='x', y='return', hue='name', data=pd.concat([mc_data, rqmc_data, full_data]))
+        plt.show()
+    info = dict(n_iters=n_iters, n_trajs=n_trajs, lr=lr, horizon=horizon, noise_scale=noise_scale, seed=seed)
+    return mc_returns, rqmc_returns, full_returns, info
 
 def comparing_over_seeds(save_fn, sample_f, sample_config, num_seeds=200):
     results = []
@@ -295,10 +301,10 @@ def comparing_over_seeds(save_fn, sample_f, sample_config, num_seeds=200):
         dill.dump(results, f)
 
 ### procedures ###
-def compare_grad_over_seeds():
+def compare_grad_over_seeds(horizon=10, num_trajs=100000):
     sample_config = dict(
-        horizon=10,
-        num_trajs=100000,
+        horizon=horizon,
+        num_trajs=num_trajs,
     )
     comparing_over_seeds(
         'data/compare_grad-{}-{}'.format(horizon, num_trajs),
@@ -306,10 +312,24 @@ def compare_grad_over_seeds():
         sample_config,
     )
 
+def compare_learning_over_seeds(horizon=10, n_iters=500, n_trajs=1500):
+    sample_config = dict(
+        horizon=horizon,
+        n_iters=n_iters,
+        n_trajs=n_trajs,
+    )
+    comparing_over_seeds(
+        'data/compare_learning-{}-{}-{}'.format(horizon, n_iters, n_trajs),
+        learning,
+        sample_config,
+        num_seeds=100,
+    )
+
 if __name__ == "__main__":
     args = get_args()
     with slaunch_ipdb_on_exception():
-        compare_grad_over_seeds()
+        compare_learning_over_seeds()
+        #compare_grad_over_seeds()
         #learning(100, 1000)
         #compare_cov(100, 5000, show_fig=True)
         #compare_grad(10, 5000, show_fig=True)
