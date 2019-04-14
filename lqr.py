@@ -55,7 +55,8 @@ class LQR(gym.Env):
         self,
         N=5,
         M=5,
-        lims=5.0,
+        lims=1000000000.0,
+        init_scale=100.0,
         max_steps=10000,
         A=None,
         A_norm=None,
@@ -68,8 +69,6 @@ class LQR(gym.Env):
         Sigma_s=None,
         Sigma_s_kappa=1.0,
         Sigma_s_scale=1.0,
-        #Sigma_a=None,
-        #Sigma_a_kappa=1.0,
     ):
         super(LQR, self).__init__()
         state_lims = lims * np.ones(N)
@@ -78,7 +77,7 @@ class LQR(gym.Env):
         self.M = M
         self.max_steps = max_steps
         self.lims = lims
-        self.init_state = np.ones(N) * 0.01 * lims
+        self.init_state = np.ones(N) * init_scale
         self.observation_space = spaces.Box(low=-state_lims,
                                             high=state_lims,
                                             dtype=np.float32)
@@ -100,26 +99,6 @@ class LQR(gym.Env):
         else:
             self.Sigma_s = np.zeros((N, N))
             self.Sigma_s_L = np.zeros((N, N))
-        #self.Sigma_a = Sigma_a if Sigma_a is not None else random_psd(M, kappa=Sigma_a_kappa, semi=True)
-        #self.Sigma_a_L = np.linalg.cholesky(self.Sigma_a)
-
-
-    def stable_controller(self, stability=0.5):
-        """
-        Returns a stable linear controller for the current
-        problem formulation.
-
-        Concretely, it finds a solution of the system
-
-        ||A + BK||_2 = I * stability, so that the state will shrink to 0
-
-        Arguments:
-            * stability (float) The desired stability of the system.
-              (Default: 0.5)
-        """
-        B_inv = np.linalg.pinv(self.B)
-        K = np.dot(B_inv, (np.eye(self.M, self.N) * stability - self.A))
-        return K
 
     def optimal_controller(self): # does not depend on noise...
         K = solve_discrete_are(self.A, self.B, self.Q, self.P)
@@ -189,47 +168,3 @@ class LQR(gym.Env):
         if self.num_steps >= self.max_steps:
             done = True
         return next_state, reward, done, info
-
-
-if __name__ == '__main__':
-    # Testing the helper function
-    #A = random_psd(100)
-    #e, _ = np.linalg.eig(A)
-    #assert np.sum(e < 0) == 0
-    #A = random_psd(100, kappa=10)
-    #e, _ = np.linalg.eig(A)
-    #e_min, e_max = e.min(), e.max()
-    #assert e_max / e_min - 10.0 < EPS
-    #assert np.sum(e < 0) == 0
-    #A = random_psd(100, semi=False)
-    #e, _ = np.linalg.eig(A)
-    #assert np.sum(e < 0) == 0
-    #A = random_psd(100, kappa=1000, semi=False)
-    #e, _ = np.linalg.eig(A)
-    #e_min, e_max = e.min(), e.max()
-    #assert e_max / e_min - 1000.0 < EPS
-    #assert np.sum(e < 0) == 0
-
-    # Testing the environment
-    H = 10000
-    env = LQR(lims=10,
-              max_steps=H,
-              Sigma_s_kappa=1.0,
-              Q_kappa=1.0,
-              P_kappa=1.0,
-              A_norm=1.0,
-              B_norm=1.0,
-              )
-    total_reward = 0.0
-    state = env.reset()
-    #K = env.stable_controller()
-    K = env.optimal_controller()
-    for step in range(H):
-        action = K.dot(state)
-        state, reward, done, info = env.step(action)
-        total_reward += reward
-        if done:
-            break
-        print(reward)
-
-    print('Total reward:', total_reward, ' at step', step)
