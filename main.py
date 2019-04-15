@@ -349,7 +349,7 @@ if __name__ == "__main__":
     with slaunch_ipdb_on_exception():
         #compare_learning_over_seeds()
         #compare_grad_over_seeds()
-        learning(2000, 800, show_fig=True)
+        learning(500, 800, show_fig=True)
         #compare_cov(100, 5000, show_fig=True)
         #compare_grad(10, 5000, show_fig=True)
         #for seed in range(100):
