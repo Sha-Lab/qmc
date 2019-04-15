@@ -209,6 +209,7 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
 def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, show_fig=False):
     set_seed(seed)
     env = LQR(
+        init_scale=1.0,
         max_steps=horizon,
         Sigma_s_kappa=1.0,
         Q_kappa=1.0,
@@ -272,6 +273,17 @@ def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, sh
         full_returns.append(np.mean(returns))
         #print('iter {}, return: {}'.format(i, full_returns[-1]))
         #if i == n_iters - 1: print(rewards) # last step trajectory
+    # optimal
+    K = env.optimal_controller()
+    optimal_returns = []
+    for i in tqdm(range(n_iters), 'optimal'):
+        returns = []
+        for j in range(n_trajs):
+            noises = np.random.randn(env.max_steps, env.M)
+            states, actions, rewards = rollout(env, K, noises)
+            returns.append(rewards.sum())
+            assert len(states) == horizon, 'the length of trajecoty is wrong!'
+        optimal_returns.append(np.mean(returns)) 
     if show_fig:
         mc_data = pd.DataFrame({
             'name': 'mc',
@@ -288,10 +300,15 @@ def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, sh
             'x': np.arange(len(full_returns)),
             'return': full_returns,
         })
-        plot = sns.lineplot(x='x', y='return', hue='name', data=pd.concat([mc_data, rqmc_data, full_data]))
+        optimal_data = pd.DataFrame({
+            'name': 'optimal',
+            'x': np.arange(len(optimal_returns)),
+            'return': optimal_returns,
+        })
+        plot = sns.lineplot(x='x', y='return', hue='name', data=pd.concat([mc_data, rqmc_data, full_data, optimal_data]))
         plt.show()
     info = dict(n_iters=n_iters, n_trajs=n_trajs, lr=lr, horizon=horizon, noise_scale=noise_scale, seed=seed)
-    return mc_returns, rqmc_returns, full_returns, info
+    return mc_returns, rqmc_returns, full_returns, optimal_returns, info
 
 def comparing_over_seeds(save_fn, sample_f, sample_config, num_seeds=200):
     results = []
@@ -330,9 +347,9 @@ def compare_learning_over_seeds(horizon=10, n_iters=500, n_trajs=1500):
 if __name__ == "__main__":
     args = get_args()
     with slaunch_ipdb_on_exception():
-        compare_learning_over_seeds()
+        #compare_learning_over_seeds()
         #compare_grad_over_seeds()
-        #learning(100, 1000)
+        learning(2000, 800, show_fig=True)
         #compare_cov(100, 5000, show_fig=True)
         #compare_grad(10, 5000, show_fig=True)
         #for seed in range(100):
