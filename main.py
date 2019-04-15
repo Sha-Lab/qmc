@@ -331,7 +331,7 @@ def compare_grad_over_seeds(horizon=10, num_trajs=100000):
         sample_config,
     )
 
-def compare_learning_over_seeds(horizon=10, n_iters=500, n_trajs=1500):
+def compare_learning_over_seeds(horizon=10, n_iters=600, n_trajs=800):
     sample_config = dict(
         horizon=horizon,
         n_iters=n_iters,
@@ -349,7 +349,7 @@ if __name__ == "__main__":
     with slaunch_ipdb_on_exception():
         #compare_learning_over_seeds()
         #compare_grad_over_seeds()
-        learning(500, 800, show_fig=True)
+        learning(600, 800, seed=2, show_fig=False)
         #compare_cov(100, 5000, show_fig=True)
         #compare_grad(10, 5000, show_fig=True)
         #for seed in range(100):
