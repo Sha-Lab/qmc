@@ -6,7 +6,7 @@ import seaborn as sns
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from tqdm import tqdm
+from tqdm import tqdm, trange
 from ipdb import slaunch_ipdb_on_exception
 
 from lqr import LQR
@@ -224,7 +224,8 @@ def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, sh
     # mc
     K = np.copy(init_K)
     mc_returns = []
-    for i in tqdm(range(n_iters), 'mc'):
+    prog = trange(n_iters, desc='mc')
+    for i in prog:
         mc_grad = []
         returns = []
         for _ in range(n_trajs):
@@ -235,16 +236,16 @@ def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, sh
             assert len(states) == horizon, 'the length of trajecoty is wrong!'
         mc_grad = np.mean(mc_grad, axis=0)
         grad_error = mse(mc_grad, env.expected_policy_gradient(K, Sigma_a))
-        K += lr * mc_grad
+        K += lr / np.maximum(1.0, np.linalg.norm(mc_grad)) * mc_grad
         mc_returns.append(np.mean(returns))
-        #print('iter {}, return: {}, grad error: {}, steps: {}'.format(i, mc_returns[-1], grad_error, len(states)))
-        #if i == n_iters - 1: print(rewards)
+        prog.set_postfix(ret=mc_returns[-1])
     # rqmc
     K = np.copy(init_K)
     rqmc_returns = []
     loc = torch.zeros(env.max_steps * env.M)
-    scale = torch.ones(env.max_steps * env.M)
-    for i in tqdm(range(n_iters), 'rqmc'):
+    scale = torch.ones(env.max_steps * env.M) 
+    prog = trange(n_iters, desc='rqmc')
+    for i in prog:
         rqmc_grad = []
         returns = []
         rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([n_trajs])).data.numpy()
@@ -255,28 +256,29 @@ def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, sh
             assert len(states) == horizon, 'the length of trajecoty is wrong!'
         rqmc_grad = np.mean(rqmc_grad, axis=0)
         grad_error = mse(rqmc_grad, env.expected_policy_gradient(K, Sigma_a))
-        K += lr * rqmc_grad
+        K += lr / np.maximum(1.0, np.linalg.norm(rqmc_grad)) * rqmc_grad
         rqmc_returns.append(np.mean(returns))
-        #print('iter {}, return: {}, grad error: {}'.format(i, rqmc_returns[-1], grad_error))
-        #if i == n_iters - 1: print(rewards) # last step trajectory
+        prog.set_postfix(ret=rqmc_returns[-1])
     # full
     K = np.copy(init_K)
     full_returns = []
-    for i in tqdm(range(n_iters), 'full'):
+    prog = trange(n_iters, desc='full')
+    for i in prog:
         returns = []
         for j in range(n_trajs):
             noises = np.random.randn(env.max_steps, env.M)
             states, actions, rewards = rollout(env, K, noises)
             returns.append(rewards.sum())
             assert len(states) == horizon, 'the length of trajecoty is wrong!'
-        K += lr * env.expected_policy_gradient(K, Sigma_a)
+        full_grad = env.expected_policy_gradient(K, Sigma_a)
+        K += lr / np.maximum(1.0, np.linalg.norm(full_grad)) * full_grad
         full_returns.append(np.mean(returns))
-        #print('iter {}, return: {}'.format(i, full_returns[-1]))
-        #if i == n_iters - 1: print(rewards) # last step trajectory
+        prog.set_postfix(ret=full_returns[-1])
     # optimal
     K = env.optimal_controller()
     optimal_returns = []
-    for i in tqdm(range(n_iters), 'optimal'):
+    prog = trange(n_iters, desc='optimal')
+    for i in prog:
         returns = []
         for j in range(n_trajs):
             noises = np.random.randn(env.max_steps, env.M)
@@ -284,6 +286,7 @@ def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, sh
             returns.append(rewards.sum())
             assert len(states) == horizon, 'the length of trajecoty is wrong!'
         optimal_returns.append(np.mean(returns)) 
+        prog.set_postfix(ret=optimal_returns[-1])
     if show_fig:
         mc_data = pd.DataFrame({
             'name': 'mc',
@@ -349,7 +352,7 @@ if __name__ == "__main__":
     with slaunch_ipdb_on_exception():
         #compare_learning_over_seeds()
         #compare_grad_over_seeds()
-        learning(600, 800, seed=2, show_fig=False)
+        learning(500, 800, seed=2, show_fig=False)
         #compare_cov(100, 5000, show_fig=True)
         #compare_grad(10, 5000, show_fig=True)
         #for seed in range(100):
