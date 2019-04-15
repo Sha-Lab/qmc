@@ -233,10 +233,13 @@ def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, sh
             states, actions, rewards = rollout(env, K, noises)
             mc_grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
             returns.append(rewards.sum())
-            assert len(states) == horizon, 'the length of trajecoty is wrong!'
+            if len(states) != horizon: 
+                print('the length of trajecoty is wrong!')
+                return None
         mc_grad = np.mean(mc_grad, axis=0)
         grad_error = mse(mc_grad, env.expected_policy_gradient(K, Sigma_a))
-        K += lr / np.maximum(1.0, np.linalg.norm(mc_grad)) * mc_grad
+        #K += lr / np.maximum(1.0, np.linalg.norm(mc_grad)) * mc_grad
+        K += lr * mc_grad
         mc_returns.append(np.mean(returns))
         prog.set_postfix(ret=mc_returns[-1])
     # rqmc
@@ -253,10 +256,13 @@ def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, sh
             states, actions, rewards = rollout(env, K, rqmc_noises[j].reshape(env.max_steps, env.M))
             rqmc_grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
             returns.append(rewards.sum())
-            assert len(states) == horizon, 'the length of trajecoty is wrong!'
+            if len(states) != horizon: 
+                print('the length of trajecoty is wrong!')
+                return None
         rqmc_grad = np.mean(rqmc_grad, axis=0)
         grad_error = mse(rqmc_grad, env.expected_policy_gradient(K, Sigma_a))
-        K += lr / np.maximum(1.0, np.linalg.norm(rqmc_grad)) * rqmc_grad
+        #K += lr / np.maximum(1.0, np.linalg.norm(rqmc_grad)) * rqmc_grad
+        K += lr * rqmc_grad
         rqmc_returns.append(np.mean(returns))
         prog.set_postfix(ret=rqmc_returns[-1])
     # full
@@ -269,9 +275,12 @@ def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, sh
             noises = np.random.randn(env.max_steps, env.M)
             states, actions, rewards = rollout(env, K, noises)
             returns.append(rewards.sum())
-            assert len(states) == horizon, 'the length of trajecoty is wrong!'
+            if len(states) != horizon: 
+                print('the length of trajecoty is wrong!')
+                return None
         full_grad = env.expected_policy_gradient(K, Sigma_a)
-        K += lr / np.maximum(1.0, np.linalg.norm(full_grad)) * full_grad
+        #K += lr / np.maximum(1.0, np.linalg.norm(full_grad)) * full_grad
+        K += lr * full_grad
         full_returns.append(np.mean(returns))
         prog.set_postfix(ret=full_returns[-1])
     # optimal
@@ -284,7 +293,9 @@ def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, sh
             noises = np.random.randn(env.max_steps, env.M)
             states, actions, rewards = rollout(env, K, noises)
             returns.append(rewards.sum())
-            assert len(states) == horizon, 'the length of trajecoty is wrong!'
+            if len(states) != horizon: 
+                print('the length of trajecoty is wrong!')
+                return None
         optimal_returns.append(np.mean(returns)) 
         prog.set_postfix(ret=optimal_returns[-1])
     if show_fig:
@@ -352,7 +363,7 @@ if __name__ == "__main__":
     with slaunch_ipdb_on_exception():
         #compare_learning_over_seeds()
         #compare_grad_over_seeds()
-        learning(500, 800, seed=2, show_fig=False)
+        learning(600, 800, seed=2, show_fig=True)
         #compare_cov(100, 5000, show_fig=True)
         #compare_grad(10, 5000, show_fig=True)
         #for seed in range(100):
