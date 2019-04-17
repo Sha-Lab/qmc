@@ -84,15 +84,15 @@ class LQR(gym.Env):
         self.action_space = spaces.Box(low=-action_lims,
                                        high=action_lims,
                                        dtype=np.float32)
-        self.A = A if A is not None else np.random.randn(N, N)
+        self.A = A if A is not None else np.random.randn(N, N) / np.sqrt(N)
         if A_norm is not None:
             self.A *= A_norm / np.linalg.norm(self.A)
-        self.B = B if B is not None else np.random.randn(N, M)
+        self.B = B if B is not None else np.random.randn(N, M) / np.sqrt(N)
         if B_norm is not None:
             self.B *= B_norm / np.linalg.norm(self.B)
-        self.P = P if P is not None else random_psd(M, kappa=P_kappa, semi=False)
-        self.Q = Q if Q is not None else random_psd(N, kappa=Q_kappa, semi=True)
-        self.Sigma_s = Sigma_s if Sigma_s is not None else random_psd(N, kappa=Sigma_s_kappa, semi=True)
+        self.P = P if P is not None else random_psd(M, kappa=P_kappa, semi=False) / np.sqrt(M)
+        self.Q = Q if Q is not None else random_psd(N, kappa=Q_kappa, semi=True) / np.sqrt(N)
+        self.Sigma_s = Sigma_s if Sigma_s is not None else 0.1 * random_psd(N, kappa=Sigma_s_kappa, semi=True)
         if Sigma_s_scale:
             self.Sigma_s *= Sigma_s_scale ** 2
             self.Sigma_s_L = np.linalg.cholesky(self.Sigma_s)
