@@ -5,6 +5,40 @@ import torch
 import argparse
 
 
+# commandr
+_cmd_dict = {}  
+
+def cmd(name=None):
+    def f(g):
+        nonlocal name
+        if name is None:
+            name = g.__name__
+        _cmd_dict[name] = g 
+        return g
+    return f
+
+def parse_args_as_func(argv):
+    args = []
+    kwargs = {}
+    i = 0 
+    while i < len(argv):
+        if argv[i].startswith('-'):
+            kwargs[argv[i].lstrip('-')] = argv[i+1]
+            i += 2
+        else:
+            args.append(argv[i])
+            i += 1
+    return args, kwargs
+
+def cmd_frun(name, *args, **kwargs):
+    return _cmd_dict[name](*args, **kwargs)
+
+def cmd_run(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+    args, kwargs = parse_args_as_func(argv)
+    cmd_frun(args[0], *args[1:], **kwargs)
+
 class with_null:
     def __enter__(self):
         return None
@@ -47,7 +81,6 @@ def push_args(args_str, args_path, timeout=30):
         jobs.insert(0, args_str + '\n')
         with open(args_path, 'w') as f:
             f.writelines(jobs)
-
 
 def batch_args(exp_path, exp_f, config=None):
     while True:

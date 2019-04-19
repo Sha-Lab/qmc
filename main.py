@@ -22,15 +22,17 @@ def parse_args(args):
         '--task', 
         choices=['cost', 'cov', 'grad', 'learn'], 
         default='learn')
-    parser.add_argument('-H', type=int, default=1, help='horizon')
+    parser.add_argument('-H', type=int, default=10, help='horizon')
     parser.add_argument('--noise', type=float, default=0.0, help='noise scale')
     parser.add_argument('--n_trajs', type=int, default=800, help='number of trajectories used')
     parser.add_argument('--n_iters', type=int, default=600, help='number of iterations of training')
+    parser.add_argument('-lr', type=float, default=0.01)
     parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--n_seeds', type=int, default=200) # for over
-    parser.add_arguemnt('--save_fn', type=str, default=None)
     parser.add_argument('--fig', action='store_true') # whether to show the figure
+    # for over seed
     parser.add_argument('--over_seed', action='store_true')
+    parser.add_argument('--n_seeds', type=int, default=200) # for over
+    parser.add_argument('--save_fn', type=str, default=None)
     return parser.parse_args(args)
 
 # error bar: https://stackoverflow.com/questions/12957582/plot-yerr-xerr-as-shaded-region-rather-than-error-bars
@@ -231,6 +233,7 @@ def learning(args):
     Sigma_a = np.diag(np.ones(env.M))
     Sigma_a_inv = np.linalg.inv(Sigma_a)
     init_K = np.random.randn(env.N, env.M)
+    out_set = set()
     # mc
     K = np.copy(init_K)
     mc_returns = []
@@ -243,13 +246,14 @@ def learning(args):
             states, actions, rewards = rollout(env, K, noises)
             mc_grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
             returns.append(rewards.sum())
-            if len(states) != horizon: 
-                print('the length of trajecoty is wrong!')
-                return None
+            if len(states) != args.H: 
+                out_set.add('mc')
+                #print('the length of trajecoty is wrong!')
+                #return None
         mc_grad = np.mean(mc_grad, axis=0)
         grad_error = mse(mc_grad, env.expected_policy_gradient(K, Sigma_a))
         #K += lr / np.maximum(1.0, np.linalg.norm(mc_grad)) * mc_grad
-        K += lr * mc_grad
+        K += args.lr * mc_grad
         mc_returns.append(np.mean(returns))
         prog.set_postfix(ret=mc_returns[-1])
     # rqmc
@@ -266,13 +270,14 @@ def learning(args):
             states, actions, rewards = rollout(env, K, rqmc_noises[j].reshape(env.max_steps, env.M))
             rqmc_grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
             returns.append(rewards.sum())
-            if len(states) != horizon: 
-                print('the length of trajecoty is wrong!')
-                return None
+            if len(states) != args.H: 
+                out_set.add('rqmc')
+                #print('the length of trajecoty is wrong!')
+                #return None
         rqmc_grad = np.mean(rqmc_grad, axis=0)
         grad_error = mse(rqmc_grad, env.expected_policy_gradient(K, Sigma_a))
         #K += lr / np.maximum(1.0, np.linalg.norm(rqmc_grad)) * rqmc_grad
-        K += lr * rqmc_grad
+        K += args.lr * rqmc_grad
         rqmc_returns.append(np.mean(returns))
         prog.set_postfix(ret=rqmc_returns[-1])
     # full
@@ -285,12 +290,13 @@ def learning(args):
             noises = np.random.randn(env.max_steps, env.M)
             states, actions, rewards = rollout(env, K, noises)
             returns.append(rewards.sum())
-            if len(states) != horizon: 
-                print('the length of trajecoty is wrong!')
-                return None
+            if len(states) != args.H: 
+                out_set.add('full')
+                #print('the length of trajecoty is wrong!')
+                #return None
         full_grad = env.expected_policy_gradient(K, Sigma_a)
         #K += lr / np.maximum(1.0, np.linalg.norm(full_grad)) * full_grad
-        K += lr * full_grad
+        K += args.lr * full_grad
         full_returns.append(np.mean(returns))
         prog.set_postfix(ret=full_returns[-1])
     # optimal
@@ -303,12 +309,13 @@ def learning(args):
             noises = np.random.randn(env.max_steps, env.M)
             states, actions, rewards = rollout(env, K, noises)
             returns.append(rewards.sum())
-            if len(states) != horizon: 
-                print('the length of trajecoty is wrong!')
-                return None
+            if len(states) != args.H: 
+                out_set.add('optimal')
+                #print('the length of trajecoty is wrong!')
+                #return None
         optimal_returns.append(np.mean(returns)) 
         prog.set_postfix(ret=optimal_returns[-1])
-    if args.show_fig:
+    if args.fig:
         mc_data = pd.DataFrame({
             'name': 'mc',
             'x': np.arange(len(mc_returns)),
@@ -331,11 +338,12 @@ def learning(args):
         })
         plot = sns.lineplot(x='x', y='return', hue='name', data=pd.concat([mc_data, rqmc_data, full_data, optimal_data]))
         plt.show()
-    info = args
+    info = {**vars(args), 'out': out_set}
     return mc_returns, rqmc_returns, full_returns, optimal_returns, info
 
 def comparing_over_seeds(save_fn, sample_f, sample_args, num_seeds=200):
     results = []
+    sample_args.save_fn = None # overwrite
     for seed in range(num_seeds):
         print('running seed {}/{}'.format(seed, num_seeds))
         sample_args.seed = seed
@@ -351,7 +359,7 @@ def main(args=None):
     else:
         raise Exception('unsupported task')
     if args.over_seed:
-        comparing_over_seeds(args.save_fn, exp_f, args, args.n_seeds)
+        comparing_over_seeds(args.save_fn, exp_f, argparse.Namespace(**vars(args)), args.n_seeds)
     else:
         exp_f(args)
 
