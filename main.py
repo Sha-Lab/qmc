@@ -15,14 +15,23 @@ from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
 # TODO: make sure compare_cost produce the same result
-# TODO: (done) write compare_cov to verify the calculation
-# TODO: write compare_grad to verify calculation
 
-def get_args():
+def parse_args(args):
     parser = argparse.ArgumentParser()
-    parser.add_argument('-H', type=int, default=1)
-    parser.add_argument('--noise', type=float, default=0.0)
-    return parser.parse_args()
+    parser.add_argument(
+        '--task', 
+        choices=['cost', 'cov', 'grad', 'learn'], 
+        default='learn')
+    parser.add_argument('-H', type=int, default=1, help='horizon')
+    parser.add_argument('--noise', type=float, default=0.0, help='noise scale')
+    parser.add_argument('--n_trajs', type=int, default=800, help='number of trajectories used')
+    parser.add_argument('--n_iters', type=int, default=600, help='number of iterations of training')
+    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--n_seeds', type=int, default=200) # for over
+    parser.add_arguemnt('--save_fn', type=str, default=None)
+    parser.add_argument('--fig', action='store_true') # whether to show the figure
+    parser.add_argument('--over_seed', action='store_true')
+    return parser.parse_args(args)
 
 # error bar: https://stackoverflow.com/questions/12957582/plot-yerr-xerr-as-shaded-region-rather-than-error-bars
 def compare_cost(horizon=100, num_trajs=1000, noise_scale=0.0, seed=0, save_dir=None, show_fig=False):
@@ -206,17 +215,18 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
         plt.show()
     return mc_errors, rqmc_errors, info
 
-def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, show_fig=False):
-    set_seed(seed)
+#def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, show_fig=False):
+def learning(args):
+    set_seed(args.seed)
     env = LQR(
         init_scale=1.0,
-        max_steps=horizon,
+        max_steps=args.H,
         Sigma_s_kappa=1.0,
         Q_kappa=1.0,
         P_kappa=1.0,
         A_norm=1.0,
         B_norm=1.0,
-        Sigma_s_scale=noise_scale,
+        Sigma_s_scale=args.noise,
     )
     Sigma_a = np.diag(np.ones(env.M))
     Sigma_a_inv = np.linalg.inv(Sigma_a)
@@ -224,11 +234,11 @@ def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, sh
     # mc
     K = np.copy(init_K)
     mc_returns = []
-    prog = trange(n_iters, desc='mc')
+    prog = trange(args.n_iters, desc='mc')
     for i in prog:
         mc_grad = []
         returns = []
-        for _ in range(n_trajs):
+        for _ in range(args.n_trajs):
             noises = np.random.randn(env.max_steps, env.M)
             states, actions, rewards = rollout(env, K, noises)
             mc_grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
@@ -247,12 +257,12 @@ def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, sh
     rqmc_returns = []
     loc = torch.zeros(env.max_steps * env.M)
     scale = torch.ones(env.max_steps * env.M) 
-    prog = trange(n_iters, desc='rqmc')
+    prog = trange(args.n_iters, desc='rqmc')
     for i in prog:
         rqmc_grad = []
         returns = []
-        rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([n_trajs])).data.numpy()
-        for j in range(n_trajs):
+        rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy()
+        for j in range(args.n_trajs):
             states, actions, rewards = rollout(env, K, rqmc_noises[j].reshape(env.max_steps, env.M))
             rqmc_grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
             returns.append(rewards.sum())
@@ -268,10 +278,10 @@ def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, sh
     # full
     K = np.copy(init_K)
     full_returns = []
-    prog = trange(n_iters, desc='full')
+    prog = trange(args.n_iters, desc='full')
     for i in prog:
         returns = []
-        for j in range(n_trajs):
+        for j in range(args.n_trajs):
             noises = np.random.randn(env.max_steps, env.M)
             states, actions, rewards = rollout(env, K, noises)
             returns.append(rewards.sum())
@@ -286,10 +296,10 @@ def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, sh
     # optimal
     K = env.optimal_controller()
     optimal_returns = []
-    prog = trange(n_iters, desc='optimal')
+    prog = trange(args.n_iters, desc='optimal')
     for i in prog:
         returns = []
-        for j in range(n_trajs):
+        for j in range(args.n_trajs):
             noises = np.random.randn(env.max_steps, env.M)
             states, actions, rewards = rollout(env, K, noises)
             returns.append(rewards.sum())
@@ -298,7 +308,7 @@ def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, sh
                 return None
         optimal_returns.append(np.mean(returns)) 
         prog.set_postfix(ret=optimal_returns[-1])
-    if show_fig:
+    if args.show_fig:
         mc_data = pd.DataFrame({
             'name': 'mc',
             'x': np.arange(len(mc_returns)),
@@ -321,61 +331,29 @@ def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, sh
         })
         plot = sns.lineplot(x='x', y='return', hue='name', data=pd.concat([mc_data, rqmc_data, full_data, optimal_data]))
         plt.show()
-    info = dict(n_iters=n_iters, n_trajs=n_trajs, lr=lr, horizon=horizon, noise_scale=noise_scale, seed=seed)
+    info = args
     return mc_returns, rqmc_returns, full_returns, optimal_returns, info
 
-def comparing_over_seeds(save_fn, sample_f, sample_config, num_seeds=200):
+def comparing_over_seeds(save_fn, sample_f, sample_args, num_seeds=200):
     results = []
     for seed in range(num_seeds):
         print('running seed {}/{}'.format(seed, num_seeds))
-        result = sample_f(seed=seed, **sample_config)
+        sample_args.seed = seed
+        result = sample_f(sample_args)
         results.append(result)
     with open(save_fn, 'wb') as f:
         dill.dump(results, f)
 
-### procedures ###
-def compare_grad_over_seeds(horizon=10, num_trajs=100000):
-    sample_config = dict(
-        horizon=horizon,
-        num_trajs=num_trajs,
-    )
-    comparing_over_seeds(
-        'data/compare_grad-{}-{}'.format(horizon, num_trajs),
-        compare_grad,
-        sample_config,
-    )
-
-def compare_learning_over_seeds(horizon=10, n_iters=600, n_trajs=800):
-    sample_config = dict(
-        horizon=horizon,
-        n_iters=n_iters,
-        n_trajs=n_trajs,
-    )
-    comparing_over_seeds(
-        'data/compare_learning-{}-{}-{}'.format(horizon, n_iters, n_trajs),
-        learning,
-        sample_config,
-        num_seeds=100,
-    )
+def main(args=None):
+    args = parse_args(args)
+    if args.task == 'learn':
+        exp_f = learning
+    else:
+        raise Exception('unsupported task')
+    if args.over_seed:
+        comparing_over_seeds(args.save_fn, exp_f, args, args.n_seeds)
+    else:
+        exp_f(args)
 
 if __name__ == "__main__":
-    args = get_args()
-    with slaunch_ipdb_on_exception():
-        #compare_learning_over_seeds()
-        #compare_grad_over_seeds()
-        learning(100, 800, seed=0, show_fig=True)
-        #compare_cov(100, 5000, show_fig=True)
-        #compare_grad(10, 5000, show_fig=True)
-        #for seed in range(100):
-            #print('running the {}-th seed'.format(seed))
-            #compare_cost(args.H, 100000, seed=seed, save=True)
-        #comparing_over_seeds(
-            #'comparing_over_noises/{}.pkl'.format(args.noise), 
-            #sample_config=dict(
-                #horizon=50,
-                #num_trajs=5000,
-                #noise_scale=args.noise,
-            #),
-            #num_seeds=100,
-        #)
-
+    main()
