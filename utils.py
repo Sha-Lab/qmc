@@ -3,6 +3,8 @@ import numpy as np
 import random
 import torch
 import argparse
+import inspect
+from inspect import signature
 
 
 # commandr
@@ -30,8 +32,17 @@ def parse_args_as_func(argv):
             i += 1
     return args, kwargs
 
+def annotate(arg, p):
+    if isinstance(p.annotation, inspect._empty):
+        return arg
+    return p.annotation(arg)
+
 def cmd_frun(name, *args, **kwargs):
-    return _cmd_dict[name](*args, **kwargs)
+    f = _cmd_dict[name]
+    sig = signature(f)
+    args = [annotate(arg, p) for arg, p in zip(args, sig.parameters.values())]
+    kwargs = {k: annotate(v, sig.parameters[k]) for k, v in kwargs.items()}
+    return f(*args, **kwargs)
 
 def cmd_run(argv=None):
     if argv is None:

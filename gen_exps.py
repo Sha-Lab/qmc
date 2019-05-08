@@ -25,7 +25,7 @@ def generate_args(exp_path, args, kwargs, variants, touch=True, shuffle=False):
             dump_args(f, args, {**kwargs, **variant})
 
 @cmd()
-def search_learn():
+def search_learn(touch: int=1, shuffle: int=0):
     variants = {
         '-H': [5, 7, 10, 13, 15, 17, 20],
         '--noise': [0.0, 0.1, 0.3, 0.5, 0.7, 0.9],
@@ -38,7 +38,7 @@ def search_learn():
         '--n_seeds': 50,
         '--n_iters': 1000,
     }
-    generate_args('exps/search_learn', args, kwargs, variants)
+    generate_args('exps/search_learn', args, kwargs, variants, shuffle=shuffle)
 
 if __name__ == "__main__":
     cmd_run()
