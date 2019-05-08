@@ -14,6 +14,8 @@ from utils import set_seed, rollout, mse
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
+from data.rllqr.rllqr import LQRProblem
+
 # TODO: make sure compare_cost produce the same result
 
 def parse_args(args):
@@ -221,6 +223,8 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
 def learning(args):
     set_seed(args.seed)
     env = LQR(
+        N=6, # compared with rllqr
+        M=4,
         init_scale=1.0,
         max_steps=args.H,
         Sigma_s_kappa=1.0,
@@ -232,8 +236,32 @@ def learning(args):
     )
     Sigma_a = np.diag(np.ones(env.M))
     Sigma_a_inv = np.linalg.inv(Sigma_a)
-    init_K = np.random.randn(env.N, env.M)
+    init_K = np.random.randn(env.M, env.N) ### swap, here it has problem!!!
     out_set = set()
+    # input: init policy, noises, 
+    # output:
+    def train(name, noise_f):
+        K = np.copy(init_K)
+        all_returns = []
+        prog = trange(args.n_iters, desc=name)
+        for i in prog:
+            grad = []
+            returns = []
+            noises = noise_f(args.n_trajs)
+            for j in range(args.n_trajs):
+                states, actions, rewards = rollout(env, K, noises[j])
+                grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
+                returns.append(rewards.sum())
+                if len(states) != args.H: 
+                    out_set.add(name)
+            grad = np.mean(grad, axis=0)
+            #grad_error = mse(grad, env.expected_policy_gradient(K, Sigma_a))
+            #K += lr / np.maximum(1.0, np.linalg.norm(grad)) * grad
+            K += args.lr * grad
+            all_returns.append(np.mean(returns))
+            prog.set_postfix(ret=all_returns[-1])
+        return all_returns 
+
     # mc
     K = np.copy(init_K)
     mc_returns = []
@@ -256,6 +284,29 @@ def learning(args):
         K += args.lr * mc_grad
         mc_returns.append(np.mean(returns))
         prog.set_postfix(ret=mc_returns[-1])
+    # variance reduced mc
+    K = np.copy(init_K)
+    vrmc_returns = []
+    prog = trange(args.n_iters, desc='vrmc')
+    for i in prog:
+        vrmc_grad = []
+        returns = []
+        for _ in range(args.n_trajs):
+            noises = np.random.randn(env.max_steps, env.M)
+            states, actions, rewards = rollout(env, K, noises)
+            Rs = rewards[::-1].cumsum()[::-1]
+            vrmc_grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ (states * Rs[:,None])) # need minus since I use cost formula in derivation
+            returns.append(rewards.sum())
+            if len(states) != args.H: 
+                out_set.add('vrmc')
+                #print('the length of trajecoty is wrong!')
+                #return None
+        vrmc_grad = np.mean(vrmc_grad, axis=0)
+        grad_error = mse(vrmc_grad, env.expected_policy_gradient(K, Sigma_a))
+        #K += lr / np.maximum(1.0, np.linalg.norm(mc_grad)) * mc_grad
+        K += args.lr * vrmc_grad
+        vrmc_returns.append(np.mean(returns))
+        prog.set_postfix(ret=vrmc_returns[-1])
     # rqmc
     K = np.copy(init_K)
     rqmc_returns = []
@@ -321,6 +372,11 @@ def learning(args):
             'x': np.arange(len(mc_returns)),
             'return': mc_returns,
         }) 
+        vrmc_data = pd.DataFrame({
+            'name': 'vrmc',
+            'x': np.arange(len(vrmc_returns)),
+            'return': vrmc_returns,
+        }) 
         rqmc_data = pd.DataFrame({
             'name': 'rqmc',
             'x': np.arange(len(rqmc_returns)),
@@ -336,10 +392,10 @@ def learning(args):
             'x': np.arange(len(optimal_returns)),
             'return': optimal_returns,
         })
-        plot = sns.lineplot(x='x', y='return', hue='name', data=pd.concat([mc_data, rqmc_data, full_data, optimal_data]))
+        plot = sns.lineplot(x='x', y='return', hue='name', data=pd.concat([mc_data, vrmc_data, rqmc_data, full_data, optimal_data]))
         plt.show()
     info = {**vars(args), 'out': out_set}
-    return mc_returns, rqmc_returns, full_returns, optimal_returns, info
+    return mc_returns, vrmc_returns, rqmc_returns, full_returns, optimal_returns, info
 
 def comparing_over_seeds(save_fn, sample_f, sample_args, num_seeds=200):
     results = []
