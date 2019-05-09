@@ -14,7 +14,7 @@ from utils import set_seed, rollout, mse
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
-from data.rllqr.rllqr import LQRProblem
+from data.rllqr.rllqr import LQRProblem, random_K_eigvalmax
 
 # TODO: make sure compare_cost produce the same result
 
@@ -194,7 +194,6 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
     rqmc_means = np.cumsum(rqmc_grads, axis=0) / np.arange(1, len(rqmc_grads) + 1)[:, np.newaxis, np.newaxis]
 
     expected_grad = env.expected_policy_gradient(K, Sigma_a)
-    #import ipdb; ipdb.set_trace()
     #assert np.all(expected_grad == 2 * env.P @ K @ np.outer(env.init_state, env.init_state))
 
     mc_errors = ((mc_means - expected_grad) ** 2).reshape(mc_means.shape[0], -1).mean(1) # why the sign is reversed?
@@ -219,183 +218,87 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
         plt.show()
     return mc_errors, rqmc_errors, info
 
-#def learning(n_iters, n_trajs, lr=0.001, horizon=10, noise_scale=0.0, seed=0, show_fig=False):
 def learning(args):
     set_seed(args.seed)
     env = LQR(
-        N=6, # compared with rllqr
-        M=4,
-        init_scale=1.0,
+        N=20, # compared with rllqr
+        M=12,
+        init_scale=5.0,
         max_steps=args.H,
         Sigma_s_kappa=1.0,
-        Q_kappa=1.0,
-        P_kappa=1.0,
+        Q_kappa=5.0,
+        P_kappa=5.0,
         A_norm=1.0,
         B_norm=1.0,
         Sigma_s_scale=args.noise,
     )
+
+    #npr = np.random.RandomState()
+
+    #xdim = 6
+    #udim = 4
+    #prob = LQRProblem.random(xdim, udim, npr)
+    #A, B, Q, R = prob.ABQR()
+
+    #eigmax = 0.9
+    #K = random_K_eigvalmax(npr, A, B, eigmax)
+
+    #init_K = K # P action, Q state
+    #env.A, env.B, env.P, env.Q = A, B, R, Q
+
     Sigma_a = np.diag(np.ones(env.M))
     Sigma_a_inv = np.linalg.inv(Sigma_a)
-    init_K = np.random.randn(env.M, env.N) ### swap, here it has problem!!!
+    init_K = np.random.randn(env.M, env.N) ### swap, here it has problem!!! fixed by a smaller learning rate
     out_set = set()
-    # input: init policy, noises, 
-    # output:
-    def train(name, noise_f):
+    def reinforce_grad(states, actions, rewards, K):
+        return Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()
+    def variance_reduced_grad(states, actions, rewards, K):
+        Rs = rewards[::-1].cumsum()[::-1]
+        return Sigma_a_inv @ (actions - states @ K.T).T @ (states * Rs[:,None])
+    def full_grad(states, actions, rewards, K):
+        return env.expected_policy_gradient(K, Sigma_a)
+    def no_grad(states, actions, rewards, K):
+        return np.zeros_like(K)
+    def train(name, init_K, grad_fn, use_rqmc=False):
         K = np.copy(init_K)
         all_returns = []
         prog = trange(args.n_iters, desc=name)
         for i in prog:
             grad = []
             returns = []
-            noises = noise_f(args.n_trajs)
+            if use_rqmc:
+                loc = torch.zeros(env.max_steps * env.M)
+                scale = torch.ones(env.max_steps * env.M) 
+                noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy().reshape(args.n_trajs, env.max_steps, env.M)
+            else:
+                noises = np.random.randn(args.n_trajs, env.max_steps, env.M)
             for j in range(args.n_trajs):
                 states, actions, rewards = rollout(env, K, noises[j])
-                grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
+                grad.append(grad_fn(states, actions, rewards, K))
+                #grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
                 returns.append(rewards.sum())
                 if len(states) != args.H: 
                     out_set.add(name)
             grad = np.mean(grad, axis=0)
-            #grad_error = mse(grad, env.expected_policy_gradient(K, Sigma_a))
+            grad_error = mse(grad, env.expected_policy_gradient(K, Sigma_a))
             #K += lr / np.maximum(1.0, np.linalg.norm(grad)) * grad
             K += args.lr * grad
             all_returns.append(np.mean(returns))
-            prog.set_postfix(ret=all_returns[-1])
+            prog.set_postfix(ret=all_returns[-1], grad_error=grad_error)
         return all_returns 
-
-    # mc
-    K = np.copy(init_K)
-    mc_returns = []
-    prog = trange(args.n_iters, desc='mc')
-    for i in prog:
-        mc_grad = []
-        returns = []
-        for _ in range(args.n_trajs):
-            noises = np.random.randn(env.max_steps, env.M)
-            states, actions, rewards = rollout(env, K, noises)
-            mc_grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
-            returns.append(rewards.sum())
-            if len(states) != args.H: 
-                out_set.add('mc')
-                #print('the length of trajecoty is wrong!')
-                #return None
-        mc_grad = np.mean(mc_grad, axis=0)
-        grad_error = mse(mc_grad, env.expected_policy_gradient(K, Sigma_a))
-        #K += lr / np.maximum(1.0, np.linalg.norm(mc_grad)) * mc_grad
-        K += args.lr * mc_grad
-        mc_returns.append(np.mean(returns))
-        prog.set_postfix(ret=mc_returns[-1])
-    # variance reduced mc
-    K = np.copy(init_K)
-    vrmc_returns = []
-    prog = trange(args.n_iters, desc='vrmc')
-    for i in prog:
-        vrmc_grad = []
-        returns = []
-        for _ in range(args.n_trajs):
-            noises = np.random.randn(env.max_steps, env.M)
-            states, actions, rewards = rollout(env, K, noises)
-            Rs = rewards[::-1].cumsum()[::-1]
-            vrmc_grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ (states * Rs[:,None])) # need minus since I use cost formula in derivation
-            returns.append(rewards.sum())
-            if len(states) != args.H: 
-                out_set.add('vrmc')
-                #print('the length of trajecoty is wrong!')
-                #return None
-        vrmc_grad = np.mean(vrmc_grad, axis=0)
-        grad_error = mse(vrmc_grad, env.expected_policy_gradient(K, Sigma_a))
-        #K += lr / np.maximum(1.0, np.linalg.norm(mc_grad)) * mc_grad
-        K += args.lr * vrmc_grad
-        vrmc_returns.append(np.mean(returns))
-        prog.set_postfix(ret=vrmc_returns[-1])
-    # rqmc
-    K = np.copy(init_K)
-    rqmc_returns = []
-    loc = torch.zeros(env.max_steps * env.M)
-    scale = torch.ones(env.max_steps * env.M) 
-    prog = trange(args.n_iters, desc='rqmc')
-    for i in prog:
-        rqmc_grad = []
-        returns = []
-        rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy()
-        for j in range(args.n_trajs):
-            states, actions, rewards = rollout(env, K, rqmc_noises[j].reshape(env.max_steps, env.M))
-            rqmc_grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
-            returns.append(rewards.sum())
-            if len(states) != args.H: 
-                out_set.add('rqmc')
-                #print('the length of trajecoty is wrong!')
-                #return None
-        rqmc_grad = np.mean(rqmc_grad, axis=0)
-        grad_error = mse(rqmc_grad, env.expected_policy_gradient(K, Sigma_a))
-        #K += lr / np.maximum(1.0, np.linalg.norm(rqmc_grad)) * rqmc_grad
-        K += args.lr * rqmc_grad
-        rqmc_returns.append(np.mean(returns))
-        prog.set_postfix(ret=rqmc_returns[-1])
-    # full
-    K = np.copy(init_K)
-    full_returns = []
-    prog = trange(args.n_iters, desc='full')
-    for i in prog:
-        returns = []
-        for j in range(args.n_trajs):
-            noises = np.random.randn(env.max_steps, env.M)
-            states, actions, rewards = rollout(env, K, noises)
-            returns.append(rewards.sum())
-            if len(states) != args.H: 
-                out_set.add('full')
-                #print('the length of trajecoty is wrong!')
-                #return None
-        full_grad = env.expected_policy_gradient(K, Sigma_a)
-        #K += lr / np.maximum(1.0, np.linalg.norm(full_grad)) * full_grad
-        K += args.lr * full_grad
-        full_returns.append(np.mean(returns))
-        prog.set_postfix(ret=full_returns[-1])
-    # optimal
-    K = env.optimal_controller()
-    optimal_returns = []
-    prog = trange(args.n_iters, desc='optimal')
-    for i in prog:
-        returns = []
-        for j in range(args.n_trajs):
-            noises = np.random.randn(env.max_steps, env.M)
-            states, actions, rewards = rollout(env, K, noises)
-            returns.append(rewards.sum())
-            if len(states) != args.H: 
-                out_set.add('optimal')
-                #print('the length of trajecoty is wrong!')
-                #return None
-        optimal_returns.append(np.mean(returns)) 
-        prog.set_postfix(ret=optimal_returns[-1])
+    returns = dict(
+        rqmc=train('rqmc', init_K, variance_reduced_grad, use_rqmc=True),
+        mc=train('mc', init_K, variance_reduced_grad),
+        #vrmc=train('vrmc', init_K, variance_reduced_grad),
+        #full=train('full', init_K, full_grad),        
+        #optimal=train('optimal', env.optimal_controller(), no_grad), # should only be calculated once
+    )
     if args.fig:
-        mc_data = pd.DataFrame({
-            'name': 'mc',
-            'x': np.arange(len(mc_returns)),
-            'return': mc_returns,
-        }) 
-        vrmc_data = pd.DataFrame({
-            'name': 'vrmc',
-            'x': np.arange(len(vrmc_returns)),
-            'return': vrmc_returns,
-        }) 
-        rqmc_data = pd.DataFrame({
-            'name': 'rqmc',
-            'x': np.arange(len(rqmc_returns)),
-            'return': rqmc_returns,
-        }) 
-        full_data = pd.DataFrame({
-            'name': 'full',
-            'x': np.arange(len(full_returns)),
-            'return': full_returns,
-        })
-        optimal_data = pd.DataFrame({
-            'name': 'optimal',
-            'x': np.arange(len(optimal_returns)),
-            'return': optimal_returns,
-        })
-        plot = sns.lineplot(x='x', y='return', hue='name', data=pd.concat([mc_data, vrmc_data, rqmc_data, full_data, optimal_data]))
+        data = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs)), 'return': rs}) for name, rs in returns.items()])
+        plot = sns.lineplot(x='x', y='return', hue='name', data=data)
         plt.show()
     info = {**vars(args), 'out': out_set}
-    return mc_returns, vrmc_returns, rqmc_returns, full_returns, optimal_returns, info
+    return returns, info
 
 def comparing_over_seeds(save_fn, sample_f, sample_args, num_seeds=200):
     results = []
