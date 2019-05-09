@@ -6,6 +6,7 @@ import seaborn as sns
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import multiprocessing
 from tqdm import tqdm, trange
 from ipdb import slaunch_ipdb_on_exception
 
@@ -223,11 +224,11 @@ def learning(args):
     env = LQR(
         N=20, # compared with rllqr
         M=12,
-        init_scale=5.0,
+        init_scale=3.0,
         max_steps=args.H,
         Sigma_s_kappa=1.0,
-        Q_kappa=5.0,
-        P_kappa=5.0,
+        Q_kappa=8.0,
+        P_kappa=8.0,
         A_norm=1.0,
         B_norm=1.0,
         Sigma_s_scale=args.noise,
@@ -285,17 +286,27 @@ def learning(args):
             K += args.lr * grad
             all_returns.append(np.mean(returns))
             prog.set_postfix(ret=all_returns[-1], grad_error=grad_error)
-        return all_returns 
+        return np.asarray(all_returns)
+
+    #pool = multiprocessing.Pool(processes=6)
+    #names = ['rqmc', 'mc']
+    #train_args = [(name, init_K, reinforce_grad, name=='rqmc') for name in names]
+    #results = pool.starmap(train, train_args)
+    #returns = {k: v for k, v in zip(names, results)}
+
     returns = dict(
-        rqmc=train('rqmc', init_K, variance_reduced_grad, use_rqmc=True),
-        mc=train('mc', init_K, variance_reduced_grad),
+        rqmc=train('rqmc', init_K, reinforce_grad, use_rqmc=True),
+        mc=train('mc', init_K, reinforce_grad),
         #vrmc=train('vrmc', init_K, variance_reduced_grad),
         #full=train('full', init_K, full_grad),        
-        #optimal=train('optimal', env.optimal_controller(), no_grad), # should only be calculated once
+        optimal=train('optimal', env.optimal_controller(), no_grad), # should only be calculated once
     )
     if args.fig:
-        data = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs)), 'return': rs}) for name, rs in returns.items()])
-        plot = sns.lineplot(x='x', y='return', hue='name', data=data)
+        #data = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs)), 'return': rs}) for name, rs in returns.items()])
+        #plot = sns.lineplot(x='x', y='return', hue='name', data=data)
+        data = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs)), 'cost': -rs}) for name, rs in returns.items()])
+        plot = sns.lineplot(x='x', y='cost', hue='name', data=data)
+        plt.yscale('log')
         plt.show()
     info = {**vars(args), 'out': out_set}
     return returns, info
