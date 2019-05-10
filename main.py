@@ -282,8 +282,9 @@ def learning(args):
                     out_set.add(name)
             grad = np.mean(grad, axis=0)
             grad_norm = np.linalg.norm(grad) #mse(grad, env.expected_policy_gradient(K, Sigma_a))
-            #K += lr / np.maximum(1.0, np.linalg.norm(grad)) * grad
-            K += args.lr / (i+1) * grad # decreasing learning rate!
+            #K += lr / np.maximum(1.0, np.linalg.norm(grad)) * grad # constant norm of gradient
+            #K += args.lr / (i+1) * grad # decreasing learning rate!
+            K += args.lr * grad # constant learning rate
             all_returns.append(np.mean(returns))
             prog.set_postfix(ret=all_returns[-1], grad_norm=grad_norm)
         return np.asarray(all_returns)
@@ -295,8 +296,8 @@ def learning(args):
     #returns = {k: v for k, v in zip(names, results)}
 
     returns = dict(
+        #mc=train('mc', init_K, variance_reduced_grad),
         rqmc=train('rqmc', init_K, variance_reduced_grad, use_rqmc=True),
-        mc=train('mc', init_K, variance_reduced_grad),
         #vrmc=train('vrmc', init_K, variance_reduced_grad),
         full=train('full', init_K, full_grad),        
         optimal=train('optimal', env.optimal_controller(), no_grad), # should only be calculated once
