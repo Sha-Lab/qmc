@@ -15,8 +15,6 @@ from utils import set_seed, rollout, mse
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
-#from data.rllqr.rllqr import LQRProblem, random_K_eigvalmax
-
 # TODO: make sure compare_cost produce the same result
 
 def parse_args(args):
@@ -25,6 +23,10 @@ def parse_args(args):
         '--task', 
         choices=['cost', 'cov', 'grad', 'learn'], 
         default='learn')
+    parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
+    parser.add_argument('--init_scale', type=float, default=3.0)
+    parser.add_argument('--PQ_kappa', type=float, default=3.0)
+    parser.add_argument('--AB_norm', type=float, default=1.0)
     parser.add_argument('-H', type=int, default=10, help='horizon')
     parser.add_argument('--noise', type=float, default=0.0, help='noise scale')
     parser.add_argument('--n_trajs', type=int, default=800, help='number of trajectories used')
@@ -33,9 +35,9 @@ def parse_args(args):
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--show_fig', action='store_true')
     parser.add_argument('--save_fig', type=str, default=None)
-    # for over seed
-    parser.add_argument('--over_seed', action='store_true')
+    parser.add_argument('--mode', choices=['single', 'over', 'collect'], default='single')
     parser.add_argument('--n_seeds', type=int, default=200)
+    parser.add_argument('--max_seed', type=int, default=200)
     parser.add_argument('--save_fn', type=str, default=None)
     return parser.parse_args(args)
 
@@ -222,22 +224,23 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
 
 def learning(args):
     set_seed(args.seed)
+    N, M = args.xu_dim
     env = LQR(
-        N=20, # compared with rllqr
-        M=12,
-        init_scale=3.0,
+        N=N,
+        M=M,
+        init_scale=args.init_scale,
         max_steps=args.H,
         Sigma_s_kappa=1.0,
-        Q_kappa=3.0,
-        P_kappa=3.0,
-        A_norm=1.0,
-        B_norm=1.0,
+        Q_kappa=args.PQ_kappa,
+        P_kappa=args.PQ_kappa,
+        A_norm=args.AB_norm,
+        B_norm=args.AB_norm,
         Sigma_s_scale=args.noise,
         #random_init=True,
     )
     Sigma_a = np.diag(np.ones(env.M))
     Sigma_a_inv = np.linalg.inv(Sigma_a)
-    init_K = np.random.randn(env.M, env.N) ### swap, here it has problem!!! fixed by a smaller learning rate
+    init_K = np.random.randn(env.M, env.N)
     out_set = set()
     def reinforce_grad(states, actions, rewards, K):
         return Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()
@@ -252,6 +255,8 @@ def learning(args):
         if n_iters is None: n_iters = args.n_iters
         K = np.copy(init_K)
         all_returns = []
+        grad_errors = []
+        grad_norms = []
         prog = trange(n_iters, desc=name)
         for i in prog:
             grad = []
@@ -270,28 +275,37 @@ def learning(args):
                     out_set.add(name)
             grad = np.mean(grad, axis=0)
             grad_norm = np.linalg.norm(grad) #mse(grad, env.expected_policy_gradient(K, Sigma_a))
+            grad_error = mse(grad, env.expected_policy_gradient(K, Sigma_a))
+            grad_norms.append(grad_norm)
+            grad_errors.append(grad_error)
             #K += lr / np.maximum(1.0, np.linalg.norm(grad)) * grad # constant norm of gradient
             #K += args.lr / (i+1) * grad # decreasing learning rate!
             K += args.lr * grad # constant learning rate
             all_returns.append(np.mean(returns))
-            prog.set_postfix(ret=all_returns[-1], grad_norm=grad_norm)
-        return np.asarray(all_returns)
-    returns = dict(
+            prog.set_postfix(ret=all_returns[-1], grad_norm=grad_norm, grad_err=grad_error)
+        return np.asarray(all_returns), np.asarray(grad_errors), np.asarray(grad_norms)
+    results = dict(
         mc=train('mc', init_K, variance_reduced_grad),
         rqmc=train('rqmc', init_K, variance_reduced_grad, use_rqmc=True),
         full=train('full', init_K, full_grad),        
-        optimal=train('optimal', env.optimal_controller(), no_grad, n_iters=1).repeat(args.n_iters),
+        optimal=tuple(map(lambda x: x.repeat(args.n_iters), train('optimal', env.optimal_controller(), no_grad, n_iters=1))),
     )
     if args.show_fig or args.save_fig is not None:
-        data = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs)), 'cost': -rs}) for name, rs in returns.items()])
-        plot = sns.lineplot(x='x', y='cost', hue='name', data=data)
+        fig, axs = plt.subplots(ncols=3)
+        costs = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs[0])), 'cost': -rs[0]}) for name, rs in results.items()])  
+        grad_errors = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs[1])), 'grad_error': rs[1]}) for name, rs in results.items()]) 
+        grad_norms = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs[2])), 'grad_norm': rs[2]}) for name, rs in results.items()]) 
+        cost_plot = sns.lineplot(x='x', y='cost', hue='name', data=costs, ax=axs[0])
+        grad_error_plot = sns.lineplot(x='x', y='grad_error', hue='name', data=grad_errors, ax=axs[1]) 
+        grad_norm_plot = sns.lineplot(x='x', y='grad_norm', hue='name', data=grad_norms, ax=axs[2])
         plt.yscale('log')
         if args.show_fig:
             plt.show()
         if args.save_fig:
-            plot.get_figure().savefig(args.save_fig)
+            #plot.get_figure().savefig(args.save_fig)
+            fig.savefig(args.save_fig)
     info = {**vars(args), 'out': out_set}
-    return returns, info
+    return results, info
 
 def comparing_over_seeds(save_fn, sample_f, sample_args, num_seeds=200):
     results = []
@@ -304,16 +318,39 @@ def comparing_over_seeds(save_fn, sample_f, sample_args, num_seeds=200):
     with open(save_fn, 'wb') as f:
         dill.dump(results, f)
 
+# run until a number of success seed is collected
+def collect_seeds(save_fn, sample_f, sample_args, success_f, n_seeds=50, max_seed=200):
+    results = []
+    sample_args.save_fn = None # overwrite, do not save
+    n_success = 0
+    for seed in range(max_seeds):
+        print('running seed {}/{}'.format(seed, num_seeds))
+        sample_args.seed = seed
+        result = sample_f(sample_args)
+        if success_f(result):
+            print('success seed, appended')
+            results.append(result)
+            n_success += 1
+        else:
+            print('fail seed, discarded')
+        if n_success == n_seeds: break
+    with open(save_fn, 'wb') as f:
+        dill.dump(results, f)
+
 def main(args=None):
     args = parse_args(args)
     if args.task == 'learn':
         exp_f = learning
     else:
         raise Exception('unsupported task')
-    if args.over_seed:
-        comparing_over_seeds(args.save_fn, exp_f, argparse.Namespace(**vars(args)), args.n_seeds)
-    else:
+    if args.mode == 'single':
         exp_f(args)
+    elif args.mode == 'over':
+        comparing_over_seeds(args.save_fn, exp_f, argparse.Namespace(**vars(args)), args.n_seeds) # why namespace on args???
+    elif args.mode == 'collect':
+        success_f = lambda info: len(info['out']) == 0
+        collect_seeds(args.save_fn, exp_f, args, success_f=success_f, n_seeds=args.n_seeds, max_seed=args.max_seed)
 
 if __name__ == "__main__":
-    main()
+    with slaunch_ipdb_on_exception():
+        main()
