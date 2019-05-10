@@ -31,10 +31,11 @@ def parse_args(args):
     parser.add_argument('--n_iters', type=int, default=600, help='number of iterations of training')
     parser.add_argument('-lr', type=float, default=0.01)
     parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--fig', action='store_true') # whether to show the figure
+    parser.add_argument('--show_fig', action='store_true')
+    parser.add_argument('--save_fig', type=str, default=None)
     # for over seed
     parser.add_argument('--over_seed', action='store_true')
-    parser.add_argument('--n_seeds', type=int, default=200) # for over
+    parser.add_argument('--n_seeds', type=int, default=200)
     parser.add_argument('--save_fn', type=str, default=None)
     return parser.parse_args(args)
 
@@ -142,7 +143,7 @@ def compare_cov(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, show
         with open(Path(save_dir, save_fn), 'wb') as f:
             info = dict(horizon=horizon, num_trajs=num_trajs, seed=seed)
             dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, info=info), f)
-    if show_fig:
+    if show_fig or save_fig:
         mc_data = pd.DataFrame({
             'name': 'mc',
             'x': np.arange(len(mc_errors)),
@@ -234,20 +235,6 @@ def learning(args):
         Sigma_s_scale=args.noise,
         #random_init=True,
     )
-
-    #npr = np.random.RandomState()
-
-    #xdim = 6
-    #udim = 4
-    #prob = LQRProblem.random(xdim, udim, npr)
-    #A, B, Q, R = prob.ABQR()
-
-    #eigmax = 0.9
-    #K = random_K_eigvalmax(npr, A, B, eigmax)
-
-    #init_K = K # P action, Q state
-    #env.A, env.B, env.P, env.Q = A, B, R, Q
-
     Sigma_a = np.diag(np.ones(env.M))
     Sigma_a_inv = np.linalg.inv(Sigma_a)
     init_K = np.random.randn(env.M, env.N) ### swap, here it has problem!!! fixed by a smaller learning rate
@@ -261,10 +248,11 @@ def learning(args):
         return env.expected_policy_gradient(K, Sigma_a)
     def no_grad(states, actions, rewards, K):
         return np.zeros_like(K)
-    def train(name, init_K, grad_fn, use_rqmc=False):
+    def train(name, init_K, grad_fn, use_rqmc=False, n_iters=None):
+        if n_iters is None: n_iters = args.n_iters
         K = np.copy(init_K)
         all_returns = []
-        prog = trange(args.n_iters, desc=name)
+        prog = trange(n_iters, desc=name)
         for i in prog:
             grad = []
             returns = []
@@ -288,27 +276,20 @@ def learning(args):
             all_returns.append(np.mean(returns))
             prog.set_postfix(ret=all_returns[-1], grad_norm=grad_norm)
         return np.asarray(all_returns)
-
-    #pool = multiprocessing.Pool(processes=6)
-    #names = ['rqmc', 'mc']
-    #train_args = [(name, init_K, reinforce_grad, name=='rqmc') for name in names]
-    #results = pool.starmap(train, train_args)
-    #returns = {k: v for k, v in zip(names, results)}
-
     returns = dict(
-        #mc=train('mc', init_K, variance_reduced_grad),
+        mc=train('mc', init_K, variance_reduced_grad),
         rqmc=train('rqmc', init_K, variance_reduced_grad, use_rqmc=True),
-        #vrmc=train('vrmc', init_K, variance_reduced_grad),
         full=train('full', init_K, full_grad),        
-        optimal=train('optimal', env.optimal_controller(), no_grad), # should only be calculated once
+        optimal=train('optimal', env.optimal_controller(), no_grad, n_iters=1).repeat(args.n_iters),
     )
-    if args.fig:
-        #data = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs)), 'return': rs}) for name, rs in returns.items()])
-        #plot = sns.lineplot(x='x', y='return', hue='name', data=data)
+    if args.show_fig or args.save_fig is not None:
         data = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs)), 'cost': -rs}) for name, rs in returns.items()])
         plot = sns.lineplot(x='x', y='cost', hue='name', data=data)
         plt.yscale('log')
-        plt.show()
+        if args.show_fig:
+            plt.show()
+        if args.save_fig:
+            plt.savefig(args.save_fig)
     info = {**vars(args), 'out': out_set}
     return returns, info
 
