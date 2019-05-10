@@ -323,16 +323,16 @@ def collect_seeds(save_fn, sample_f, sample_args, success_f, n_seeds=50, max_see
     results = []
     sample_args.save_fn = None # overwrite, do not save
     n_success = 0
-    for seed in range(max_seeds):
-        print('running seed {}/{}'.format(seed, num_seeds))
+    for seed in range(max_seed):
+        print('running seed {}/{}, collecting seed {}/{}'.format(seed, max_seed, n_success, n_seeds))
         sample_args.seed = seed
         result = sample_f(sample_args)
         if success_f(result):
             print('success seed, appended')
-            results.append(result)
             n_success += 1
         else:
             print('fail seed, discarded')
+        results.append(result)
         if n_success == n_seeds: break
     with open(save_fn, 'wb') as f:
         dill.dump(results, f)
@@ -348,7 +348,7 @@ def main(args=None):
     elif args.mode == 'over':
         comparing_over_seeds(args.save_fn, exp_f, argparse.Namespace(**vars(args)), args.n_seeds) # why namespace on args???
     elif args.mode == 'collect':
-        success_f = lambda info: len(info['out']) == 0
+        success_f = lambda result: len(result[1]['out']) == 0
         collect_seeds(args.save_fn, exp_f, args, success_f=success_f, n_seeds=args.n_seeds, max_seed=args.max_seed)
 
 if __name__ == "__main__":
