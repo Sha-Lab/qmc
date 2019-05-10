@@ -227,11 +227,12 @@ def learning(args):
         init_scale=3.0,
         max_steps=args.H,
         Sigma_s_kappa=1.0,
-        Q_kappa=8.0,
-        P_kappa=8.0,
+        Q_kappa=1.0,
+        P_kappa=1.0,
         A_norm=1.0,
         B_norm=1.0,
         Sigma_s_scale=args.noise,
+        #random_init=True,
     )
 
     #npr = np.random.RandomState()
@@ -276,16 +277,15 @@ def learning(args):
             for j in range(args.n_trajs):
                 states, actions, rewards = rollout(env, K, noises[j])
                 grad.append(grad_fn(states, actions, rewards, K))
-                #grad.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
                 returns.append(rewards.sum())
                 if len(states) != args.H: 
                     out_set.add(name)
             grad = np.mean(grad, axis=0)
-            grad_error = mse(grad, env.expected_policy_gradient(K, Sigma_a))
+            grad_norm = np.linalg.norm(grad) #mse(grad, env.expected_policy_gradient(K, Sigma_a))
             #K += lr / np.maximum(1.0, np.linalg.norm(grad)) * grad
-            K += args.lr * grad
+            K += args.lr / (i+1) * grad # decreasing learning rate!
             all_returns.append(np.mean(returns))
-            prog.set_postfix(ret=all_returns[-1], grad_error=grad_error)
+            prog.set_postfix(ret=all_returns[-1], grad_norm=grad_norm)
         return np.asarray(all_returns)
 
     #pool = multiprocessing.Pool(processes=6)
@@ -295,10 +295,10 @@ def learning(args):
     #returns = {k: v for k, v in zip(names, results)}
 
     returns = dict(
-        rqmc=train('rqmc', init_K, reinforce_grad, use_rqmc=True),
-        mc=train('mc', init_K, reinforce_grad),
+        rqmc=train('rqmc', init_K, variance_reduced_grad, use_rqmc=True),
+        mc=train('mc', init_K, variance_reduced_grad),
         #vrmc=train('vrmc', init_K, variance_reduced_grad),
-        #full=train('full', init_K, full_grad),        
+        full=train('full', init_K, full_grad),        
         optimal=train('optimal', env.optimal_controller(), no_grad), # should only be calculated once
     )
     if args.fig:

@@ -69,6 +69,7 @@ class LQR(gym.Env):
         Sigma_s=None,
         Sigma_s_kappa=1.0,
         Sigma_s_scale=1.0,
+        random_init=False,
     ):
         super(LQR, self).__init__()
         state_lims = lims * np.ones(N)
@@ -77,6 +78,7 @@ class LQR(gym.Env):
         self.M = M
         self.max_steps = max_steps
         self.lims = lims
+        self.random_init = random_init
         self.init_state = np.ones(N) * init_scale
         self.observation_space = spaces.Box(low=-state_lims,
                                             high=state_lims,
@@ -108,7 +110,12 @@ class LQR(gym.Env):
     def reset(self):
         self.num_steps = 0
         #self.state = np.random.random(size=self.N) * self.lims # minus 1/2?
-        self.state = self.init_state
+        if self.random_init:
+            self.state = np.random.randn(self.N)
+            self.state /= np.linalg.norm(self.state)
+            self.state *= self.init_state[0] # hack!
+        else:
+            self.state = self.init_state
         return self.state
 
     # you need to input a stable control matrix K
@@ -141,6 +148,7 @@ class LQR(gym.Env):
         return cov
 
     def expected_policy_gradient(self, K, Sigma_a):
+        assert not self.random_init, 'policy gradient for random init has not been implemented'
         conv = [self.expected_state_cov(t, K, Sigma_a) for t in range(self.max_steps)]
         abk = self.A + self.B @ K
         qkp = self.Q + K.T @ self.P @ K
