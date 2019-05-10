@@ -2,10 +2,13 @@ import sys
 import numpy as np
 import random
 import torch
+import shlex
 import argparse
 import inspect
+import filelock
+import traceback
 from inspect import signature
-
+from pathlib import Path
 
 # commandr
 _cmd_dict = {}  
@@ -59,6 +62,7 @@ class with_null:
 
 # for bach experiments, but combined with argparse and put this into your main.py
 def read_args(args_path, timeout=30):
+    args_path = Path(args_path)
     lock_dir = Path(args_path.parent, '.lock')
     lock_dir.mkdir(parents=True, exist_ok=True)
     lock_fn = Path(lock_dir, args_path.stem)
@@ -82,6 +86,7 @@ def read_args(args_path, timeout=30):
     return args
 
 def push_args(args_str, args_path, timeout=30):
+    args_path = Path(args_path)
     lock_dir = Path(args_path.parent, '.lock')
     lock_dir.mkdir(parents=True, exist_ok=True)
     lock_fn = Path(lock_dir, args_path.stem)
@@ -105,7 +110,7 @@ def batch_args(exp_path, exp_f, config=None):
             exp_f(args, config)
             exp_finished = True
         except Exception as e:
-            traceback.print_exc()
+            traceback.print_exc() # if traceback is not import, no error will be shown
         finally:
             if not exp_finished:
                 push_args(args_str, exp_path)

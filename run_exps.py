@@ -1,5 +1,6 @@
 import argparse
 from utils import batch_args, with_null
+from ipdb import slaunch_ipdb_on_exception
 # local file
 from main import main
 
@@ -14,7 +15,7 @@ def run(args, config):
         context = slaunch_ipdb_on_exception
     else:
         context = with_null
-    with context:
+    with context():
         main(args)
 
 
