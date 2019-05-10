@@ -15,7 +15,7 @@ from utils import set_seed, rollout, mse
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
-from data.rllqr.rllqr import LQRProblem, random_K_eigvalmax
+#from data.rllqr.rllqr import LQRProblem, random_K_eigvalmax
 
 # TODO: make sure compare_cost produce the same result
 
