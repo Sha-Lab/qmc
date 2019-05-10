@@ -289,7 +289,7 @@ def learning(args):
         if args.show_fig:
             plt.show()
         if args.save_fig:
-            plt.savefig(args.save_fig)
+            plot.get_figure().savefig(args.save_fig)
     info = {**vars(args), 'out': out_set}
     return returns, info
 
