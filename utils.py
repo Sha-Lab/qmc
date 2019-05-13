@@ -7,8 +7,12 @@ import argparse
 import inspect
 import filelock
 import traceback
+import subprocess
 from inspect import signature
 from pathlib import Path
+
+def is_git_diff():
+    return bool(subprocess.check_output(['git', 'diff']))
 
 # commandr
 _cmd_dict = {}  
