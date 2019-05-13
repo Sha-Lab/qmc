@@ -259,7 +259,7 @@ def learning(args):
         grad_norms = []
         prog = trange(n_iters, desc=name)
         for i in prog:
-            if name in out_set: # fast skip
+            if name in out_set or (name == 'full' and len(out_set) == 2): # fast skip
                 all_returns.append(np.nan)
                 grad_errors.append(np.nan)
                 grad_norms.append(np.nan)
