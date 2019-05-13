@@ -1,4 +1,6 @@
 #pytorch
+numpy
+scipy
 dill
 matplotlib
 numba
@@ -7,3 +9,5 @@ ipdb
 tqdm
 gym
 filelock
+termcolor
+seaborn
