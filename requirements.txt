@@ -1,9 +1,14 @@
 #pytorch
+numpy
+scipy
 dill
 matplotlib
-numba
-particles
 ipdb
 tqdm
 gym
 filelock
+termcolor
+seaborn
+numba
+particles
+

@@ -183,7 +183,6 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
         noises = np.random.randn(env.max_steps, env.M)
         states, actions, rewards = rollout(env, K, noises)
         mc_grads.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
-        #grad.append(Sigma_a_inv @ np.outer(actions[0] - K @ states[0], states[0]) * rewards[0]) # debug
     mc_grads = np.asarray(mc_grads)
     mc_means = np.cumsum(mc_grads, axis=0) / np.arange(1, len(mc_grads) + 1)[:, np.newaxis, np.newaxis]
     
@@ -198,7 +197,6 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
     rqmc_means = np.cumsum(rqmc_grads, axis=0) / np.arange(1, len(rqmc_grads) + 1)[:, np.newaxis, np.newaxis]
 
     expected_grad = env.expected_policy_gradient(K, Sigma_a)
-    #assert np.all(expected_grad == 2 * env.P @ K @ np.outer(env.init_state, env.init_state))
 
     mc_errors = ((mc_means - expected_grad) ** 2).reshape(mc_means.shape[0], -1).mean(1) # why the sign is reversed?
     rqmc_errors = ((rqmc_means - expected_grad) ** 2).reshape(rqmc_means.shape[0], -1).mean(1)
@@ -259,6 +257,11 @@ def learning(args):
         grad_norms = []
         prog = trange(n_iters, desc=name)
         for i in prog:
+            if name in out_set or (name == 'full' and len(out_set) == 2): # fast skip
+                all_returns.append(np.nan)
+                grad_errors.append(np.nan)
+                grad_norms.append(np.nan)
+                continue
             grad = []
             returns = []
             if use_rqmc:
