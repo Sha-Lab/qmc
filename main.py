@@ -77,48 +77,29 @@ def compare_cost(args):
 
     expected_cost = env.expected_cost(K, np.diag(np.ones(env.M)))
 
-    mc_bias = np.abs(mc_means - expected_cost)
-    rqmc_bias = np.abs(rqmc_means - expected_cost)
-    mc_variance = cummean((mc_costs - expected_cost) ** 2)
-    rqmc_variance = cummean((rqmc_costs - expected_cost) ** 2)
+    mc_errors = np.abs(mc_means - expected_cost)
+    rqmc_errors = np.abs(rqmc_means - expected_cost)
     info = {**vars(args), 'mc_costs': mc_costs, 'rqmc_costs': rqmc_costs}
     if args.save_fn is not None:
         with open(args.save_fn, 'wb') as f:
-            dill.dump(dict(mc_bias=mc_bias, rqmc_bias=rqmc_bias, mc_variance=mc_variance, rqmc_variance=rqmc_variance, info=info), f)
+            dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, info=info), f)
     if args.show_fig:
         data = pd.concat([
             pd.DataFrame({
                 'name': 'mc',
-                'x': np.arange(len(mc_bias)),
-                'error': mc_bias,
-                'type': 'bias',
+                'x': np.arange(len(mc_errors)),
+                'error': mc_errors,
             }),
             pd.DataFrame({
                 'name': 'rqmc',
-                'x': np.arange(len(rqmc_bias)),
-                'error': rqmc_bias,
-                'type': 'bias',
-            }),
-            pd.DataFrame({
-                'name': 'mc',
-                'x': np.arange(len(mc_variance)),
-                'error': mc_variance,
-                'type': 'variance',
-            }),
-            pd.DataFrame({
-                'name': 'rqmc',
-                'x': np.arange(len(rqmc_variance)),
-                'error': rqmc_variance,
-                'type': 'variance',
+                'x': np.arange(len(rqmc_errors)),
+                'error': rqmc_errors,
             }),
         ])
-        fig = sns.FacetGrid(data, aspect=1.4, col='type', hue='name', sharey=False)
-        fig.map_dataframe(sns.lineplot, x='x', y='error')
-        fig.add_legend()
-        #plot = sns.relplot(x='x', y='error', hue='name', kind='line', data=pd.concat([mc_data, rqmc_data]))
-        fig.set(yscale='log')
+        plot = sns.lineplot(x='x', y='error', hue='name', data=data)
+        plot.set(yscale='log')
         plt.show()
-    return mc_bias, rqmc_bias, mc_variance, rqmc_variance, info
+    return mc_errors, rqmc_errors, info
 
 def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, show_fig=False):
     set_seed(seed)
