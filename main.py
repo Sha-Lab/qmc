@@ -11,7 +11,7 @@ from tqdm import tqdm, trange
 from ipdb import slaunch_ipdb_on_exception
 
 from lqr import LQR
-from utils import set_seed, rollout, mse
+from utils import set_seed, rollout, mse, cummean
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
@@ -21,7 +21,7 @@ def parse_args(args):
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--task', 
-        choices=['cost', 'cov', 'grad', 'learn'], 
+        choices=['cost', 'grad', 'learn'], 
         default='learn')
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
     parser.add_argument('--init_scale', type=float, default=3.0)
@@ -42,27 +42,25 @@ def parse_args(args):
     return parser.parse_args(args)
 
 # error bar: https://stackoverflow.com/questions/12957582/plot-yerr-xerr-as-shaded-region-rather-than-error-bars
-def compare_cost(horizon=100, num_trajs=1000, noise_scale=0.0, seed=0, save_dir=None, show_fig=False):
-    set_seed(seed)
+#def compare_cost(horizon=100, num_trajs=1000, noise_scale=0.0, seed=0, save_dir=None, show_fig=False):
+def compare_cost(args):
+    set_seed(args.seed)
     env = LQR(
-        lims=100,
         init_scale=1.0,
-        max_steps=horizon,
+        max_steps=100,
         Sigma_s_kappa=1.0,
         Q_kappa=1.0,
         P_kappa=1.0,
         A_norm=1.0,
         B_norm=1.0,
-        Sigma_s_scale=noise_scale,
+        Sigma_s_scale=0.0,
     )
     K = env.optimal_controller()
-    print(env.Sigma_s)
 
-    mc_costs = []
-    mc_means = []
-    for i in range(num_trajs):
+    mc_costs = [] # individual
+    mc_means = [] # cumulative
+    for i in tqdm(range(args.n_trajs), 'mc'):
         noises = np.random.randn(env.max_steps, env.M)
-        #cost, total_steps = rollout(env, K, noises)
         _, _, rewards = rollout(env, K, noises)
         mc_costs.append(-rewards.sum())
         mc_means.append(np.mean(mc_costs))
@@ -71,94 +69,37 @@ def compare_cost(horizon=100, num_trajs=1000, noise_scale=0.0, seed=0, save_dir=
     rqmc_means = []
     loc = torch.zeros(env.max_steps * env.M)
     scale = torch.ones(env.max_steps * env.M)
-    rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([num_trajs])).data.numpy()
-    for i in range(num_trajs):
-        #cost, total_steps = rollout(env, K, rqmc_noises[i].reshape(env.max_steps, env.N))
+    rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy()
+    for i in tqdm(range(args.n_trajs), 'rqmc'):
         _, _, rewards = rollout(env, K, rqmc_noises[i].reshape(env.max_steps, env.M))
         rqmc_costs.append(-rewards.sum())
         rqmc_means.append(np.mean(rqmc_costs))
 
     expected_cost = env.expected_cost(K, np.diag(np.ones(env.M)))
 
-    mc_errors = (mc_means - expected_cost) ** 2
-    rqmc_errors = (rqmc_means - expected_cost) ** 2
-    save_fn = 'H-{}.num_traj-{}.ns-{}.{}.pkl'.format(horizon, num_trajs, noise_scale, seed)
-    info = dict(mc_costs=mc_costs, rqmc_costs=rqmc_costs, save_fn=save_fn)
-    if save_dir is not None:
-        with open(Path(save_dir, save_fn), 'wb') as f:
+    mc_errors = np.abs(mc_means - expected_cost)
+    rqmc_errors = np.abs(rqmc_means - expected_cost)
+    info = {**vars(args), 'mc_costs': mc_costs, 'rqmc_costs': rqmc_costs}
+    if args.save_fn is not None:
+        with open(args.save_fn, 'wb') as f:
             dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, info=info), f)
-    if show_fig:
-        mc_data = pd.DataFrame({
-            'name': 'mc',
-            'x': np.arange(len(mc_errors)),
-            'error': mc_errors,
-        })
-        rqmc_data = pd.DataFrame({
-            'name': 'rqmc',
-            'x': np.arange(len(rqmc_errors)),
-            'error': rqmc_errors,
-        })
-        plot = sns.relplot(x='x', y='error', hue='name', kind='line', data=pd.concat([mc_data, rqmc_data]))
-        plot.set(yscale='log')
-    return mc_errors, rqmc_errors, info
-
-def compare_cov(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, show_fig=False):
-    set_seed(seed)
-    env = LQR(
-        lims=100,
-        init_scale=1.0,
-        max_steps=horizon,
-        Sigma_s_kappa=1.0,
-        Q_kappa=1.0,
-        P_kappa=1.0,
-        A_norm=1.0,
-        B_norm=1.0,
-        Sigma_s_scale=noise_scale,
-    )
-    K = env.optimal_controller()
-    Sigma_a = np.diag(np.ones(env.M))
-    print(env.Sigma_s)
-    mc_states = []
-    for i in tqdm(range(num_trajs), 'mc'):
-        noises = np.random.randn(env.max_steps, env.M)
-        states, _, _ = rollout(env, K, noises)
-        mc_states.append(states)
-    mc_states = np.asarray(mc_states)
-    mc_sc = np.matmul(np.expand_dims(mc_states, 3), np.expand_dims(mc_states, 2))
-    mc_means = np.cumsum(mc_sc, axis=0) / np.arange(1, len(mc_sc) + 1)[:, np.newaxis, np.newaxis, np.newaxis]
-    
-    rqmc_states = []
-    loc = torch.zeros(env.max_steps * env.M)
-    scale = torch.ones(env.max_steps * env.M)
-    rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([num_trajs])).data.numpy()
-    for i in tqdm(range(num_trajs), 'rqmc'):
-        states, _, _ = rollout(env, K, rqmc_noises[i].reshape(env.max_steps, env.M))
-        rqmc_states.append(states)
-    rqmc_sc = np.matmul(np.expand_dims(rqmc_states, 3), np.expand_dims(rqmc_states, 2))
-    rqmc_means = np.cumsum(rqmc_sc, axis=0) / np.arange(1, len(rqmc_sc) + 1)[:, np.newaxis, np.newaxis, np.newaxis]
-
-    expected_sc = np.asarray([env.expected_state_cov(t, K, Sigma_a) for t in range(env.max_steps)])
-
-    mc_errors = ((mc_means - expected_sc) ** 2).reshape(*mc_sc.shape[:2], -1).mean(2)
-    rqmc_errors = ((rqmc_means - expected_sc) ** 2).reshape(*rqmc_sc.shape[:2], -1).mean(2)
-    if save_dir is not None:
-        with open(Path(save_dir, save_fn), 'wb') as f:
-            info = dict(horizon=horizon, num_trajs=num_trajs, seed=seed)
-            dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, info=info), f)
-    if show_fig or save_fig:
-        mc_data = pd.DataFrame({
-            'name': 'mc',
-            'x': np.arange(len(mc_errors)),
-            'error': mc_errors[:, -1],
-        })
-        rqmc_data = pd.DataFrame({
-            'name': 'rqmc',
-            'x': np.arange(len(rqmc_errors)),
-            'error': rqmc_errors[:, -1],
-        })
-        plot = sns.lineplot(x='x', y='error', hue='name', data=pd.concat([mc_data, rqmc_data]))
+    if args.show_fig:
+        data = pd.concat([
+            pd.DataFrame({
+                'name': 'mc',
+                'x': np.arange(len(mc_errors)),
+                'error': mc_errors,
+            }),
+            pd.DataFrame({
+                'name': 'rqmc',
+                'x': np.arange(len(rqmc_errors)),
+                'error': rqmc_errors,
+            }),
+        ])
+        plot = sns.lineplot(x='x', y='error', hue='name', data=data)
         plot.set(yscale='log')
         plt.show()
+    return mc_errors, rqmc_errors, info
 
 def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, show_fig=False):
     set_seed(seed)
@@ -344,6 +285,8 @@ def main(args=None):
     args = parse_args(args)
     if args.task == 'learn':
         exp_f = learning
+    elif args.task == 'cost':
+        exp_f = compare_cost
     else:
         raise Exception('unsupported task')
     if args.mode == 'single':
@@ -351,6 +294,7 @@ def main(args=None):
     elif args.mode == 'over':
         comparing_over_seeds(args.save_fn, exp_f, argparse.Namespace(**vars(args)), args.n_seeds) # why namespace on args???
     elif args.mode == 'collect':
+        assert args.task == 'learn'
         success_f = lambda result: len(result[1]['out']) == 0
         collect_seeds(args.save_fn, exp_f, args, success_f=success_f, n_seeds=args.n_seeds, max_seed=args.max_seed)
 

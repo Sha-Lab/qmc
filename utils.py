@@ -149,3 +149,6 @@ def rollout(env, K, noises):
   
 def mse(a, b):
     return ((a - b) ** 2).mean()
+
+def cummean(x, axis=0):
+    return np.cumsum(x, axis=axis) / np.cumsum(np.ones_like(x), axis=axis)
