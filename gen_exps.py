@@ -33,14 +33,8 @@ def generate_args(exp_path, args, kwargs, variants, post_variant=None, touch=Tru
 @cmd()
 def search_learn(touch: int=1, shuffle: int=0):
     variants = {
-        '--xu_dim': [(20, 12), (6, 4), (10, 8), (15, 15)], 
-        '--init_scale': [1.0, 2.0, 3.0, 4.0, 5.0], 
-        '--PQ_kappa': [1.0, 2.0, 3.0, 4.0, 5.0],
-        '--AB_norm': [1.1, 1.2, 1.5, 1.8, 2.0],
-        '-H': [5, 7, 10, 13],
-        '--noise': [0.0, 0.1, 0.3, 0.5],
         '--n_trajs': [5, 10, 20, 40, 60, 80, 100, 200, 300, 500],
-        '-lr': [0.00001, 0.00005, 0.0001, 0.0005],
+        '-lr': [0.00005],
     }
     args = []
     kwargs = {
@@ -50,10 +44,7 @@ def search_learn(touch: int=1, shuffle: int=0):
         '--mode': 'collect',
     }
     def post_variant(variant):
-        keys = ['--init_scale', '--PQ_kappa', '--AB_norm', '-H', '--noise', '--n_trajs', '-lr']
-        name = '-'.join([str(variant[key]) for key in keys])
-        name = '{}-{}-{}'.format(*variant['--xu_dim'], name)
-        variant['--save_fn'] = 'data/search_learn/{}'.format(name) 
+        variant['--save_fn'] = 'data/search_learn_2/{}'.format(variant['--n_trajs'])
         return variant
     generate_args('exps/search_learn', args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
 
