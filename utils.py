@@ -103,6 +103,9 @@ def push_args(args_str, args_path, timeout=30):
             f.writelines(jobs)
 
 def batch_args(exp_path, exp_f, config=None):
+    if config is not None and not config.d and is_git_diff():
+        print(colored('please commit your changes before running new experiments!', 'red', attrs=['bold']))
+        return
     while True:
         args = read_args(exp_path)
         if args is None: break
