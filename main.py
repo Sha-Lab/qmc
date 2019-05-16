@@ -6,12 +6,12 @@ import seaborn as sns
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import multiprocessing
+import multiprocessing as mp
 from tqdm import tqdm, trange
 from ipdb import slaunch_ipdb_on_exception
 
 from lqr import LQR
-from utils import set_seed, rollout, mse, cummean
+from utils import set_seed, rollout, mse, cummean, Sampler
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
@@ -177,6 +177,7 @@ def learning(args):
         Sigma_s_scale=args.noise,
         #random_init=True,
     )
+    sampler = Sampler(env, 4) # mp
     Sigma_a = np.diag(np.ones(env.M))
     Sigma_a_inv = np.linalg.inv(Sigma_a)
     init_K = np.random.randn(env.M, env.N)
@@ -211,8 +212,10 @@ def learning(args):
                 noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy().reshape(args.n_trajs, env.max_steps, env.M)
             else:
                 noises = np.random.randn(args.n_trajs, env.max_steps, env.M)
-            for j in range(args.n_trajs):
-                states, actions, rewards = rollout(env, K, noises[j])
+            data = sampler.sample(K, noises) # mp
+            for states, actions, rewards in data: 
+            #for j in range(args.n_trajs):
+                #states, actions, rewards = rollout(env, K, noises[j])
                 grad.append(grad_fn(states, actions, rewards, K))
                 returns.append(rewards.sum())
                 if len(states) != args.H: 

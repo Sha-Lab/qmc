@@ -8,6 +8,7 @@ import inspect
 import filelock
 import traceback
 import subprocess
+import multiprocessing as mp
 from inspect import signature
 from pathlib import Path
 
@@ -133,6 +134,7 @@ def set_seed(t, r=None, p=None, c=None):
     if c is not None:
       torch.cuda.manual_seed(c)
 
+# environment might has different random seed
 def rollout(env, K, noises):
     states = []
     actions = []
@@ -155,3 +157,30 @@ def mse(a, b):
 
 def cummean(x, axis=0):
     return np.cumsum(x, axis=axis) / np.cumsum(np.ones_like(x), axis=axis)
+
+# sampler helper function
+def sample_init(env, init_seeds):
+    global sample_env
+    sample_env = env
+    seed = init_seeds.get()
+    env.seed(seed)
+
+def _rollout(K, noises):
+    global sample_env
+    return rollout(sample_env, K, noises)
+
+# initializer take init_queue as input
+# This is just for rollout
+class Sampler:
+    def __init__(self, env, n_processes=0):
+        if n_processes <= 0: n_processes = mp.cpu_count()
+        init_seeds = mp.Queue()
+        for seed in np.random.randint(100000000, size=n_processes): init_seeds.put(seed) # initseeds
+        self.pool = mp.Pool(n_processes, sample_init, (env, init_seeds))
+        
+    def sample(self, K, noises):
+        return self.pool.starmap_async(_rollout, [(K, noise) for noise in noises]).get()
+
+    def __del__(self):
+        self.pool.close()
+        self.pool.join()

@@ -8,7 +8,7 @@ from scipy.linalg import solve_discrete_are
 EPS = 1e-8
 
 
-def random_psd(N, kappa=None, semi=True):
+def random_psd(N, kappa=None, semi=True, rng=None):
     """
     Returns a NxN random positive semi-definite matrix.
 
@@ -17,7 +17,8 @@ def random_psd(N, kappa=None, semi=True):
           (Default: True)
         * kappa (float or None) Condition number of the matrix, if specified.
     """
-    matrix = np.random.randn(N, N)
+    if rng is None: rng = np.random
+    matrix = rng.randn(N, N)
     Q, R = np.linalg.qr(matrix)
     if kappa is not None:
         evalues = np.linspace(1, kappa, N)
@@ -26,7 +27,7 @@ def random_psd(N, kappa=None, semi=True):
             min_eig = 0.0
         else:
             min_eig = EPS
-        evalues = np.random.uniform(low=min_eig, high=1, size=N)
+        evalues = rng.uniform(low=min_eig, high=1, size=N)
     evalues = np.diag(evalues)
     matrix = Q.dot(evalues).dot(Q.transpose())
     return matrix
@@ -70,8 +71,10 @@ class LQR(gym.Env):
         Sigma_s_kappa=1.0,
         Sigma_s_scale=1.0,
         random_init=False,
+        seed=0,
     ):
         super(LQR, self).__init__()
+        self.rng = np.random.RandomState(seed)
         state_lims = lims * np.ones(N)
         action_lims = lims * np.ones(M)
         self.N = N
@@ -86,21 +89,24 @@ class LQR(gym.Env):
         self.action_space = spaces.Box(low=-action_lims,
                                        high=action_lims,
                                        dtype=np.float32)
-        self.A = A if A is not None else np.random.randn(N, N) / np.sqrt(N)
+        self.A = A if A is not None else self.rng.randn(N, N) / np.sqrt(N)
         if A_norm is not None:
             self.A *= A_norm / np.linalg.norm(self.A)
-        self.B = B if B is not None else np.random.randn(N, M) / np.sqrt(N)
+        self.B = B if B is not None else self.rng.randn(N, M) / np.sqrt(N)
         if B_norm is not None:
             self.B *= B_norm / np.linalg.norm(self.B)
-        self.P = P if P is not None else random_psd(M, kappa=P_kappa, semi=False) / np.sqrt(M)
-        self.Q = Q if Q is not None else random_psd(N, kappa=Q_kappa, semi=True) / np.sqrt(N)
-        self.Sigma_s = Sigma_s if Sigma_s is not None else 0.1 * random_psd(N, kappa=Sigma_s_kappa, semi=True)
+        self.P = P if P is not None else random_psd(M, kappa=P_kappa, semi=False, rng=self.rng) / np.sqrt(M)
+        self.Q = Q if Q is not None else random_psd(N, kappa=Q_kappa, semi=True, rng=self.rng) / np.sqrt(N)
+        self.Sigma_s = Sigma_s if Sigma_s is not None else 0.1 * random_psd(N, kappa=Sigma_s_kappa, semi=True, rng=self.rng)
         if Sigma_s_scale:
             self.Sigma_s *= Sigma_s_scale ** 2
             self.Sigma_s_L = np.linalg.cholesky(self.Sigma_s)
         else:
             self.Sigma_s = np.zeros((N, N))
             self.Sigma_s_L = np.zeros((N, N))
+
+    def seed(self, seed=None):
+        self.rng.seed(seed)
 
     def optimal_controller(self): # does not depend on noise...
         K = solve_discrete_are(self.A, self.B, self.Q, self.P)
@@ -111,7 +117,7 @@ class LQR(gym.Env):
         self.num_steps = 0
         #self.state = np.random.random(size=self.N) * self.lims # minus 1/2?
         if self.random_init:
-            self.state = np.random.randn(self.N)
+            self.state = self.rng.randn(self.N)
             self.state /= np.linalg.norm(self.state)
             self.state *= self.init_state[0] # hack!
         else:
@@ -163,7 +169,7 @@ class LQR(gym.Env):
         return -np.linalg.inv(Sigma_a) @ grad # in derivation I use formula for cost
 
     def step(self, action):
-        noise = self.Sigma_s_L.dot(np.random.randn(self.N))
+        noise = self.Sigma_s_L.dot(self.rng.randn(self.N))
         next_state = self.A.dot(self.state) + self.B.dot(action) + noise
         state_cost = self.state.dot(self.Q).dot(self.state)
         action_cost = action.dot(self.P).dot(action)
