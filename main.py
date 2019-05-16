@@ -1,4 +1,5 @@
 import sys
+import gym
 import torch
 import dill
 import argparse
@@ -11,6 +12,7 @@ from tqdm import tqdm, trange
 from ipdb import slaunch_ipdb_on_exception
 
 from lqr import LQR
+from envs import *
 from utils import set_seed, rollout, mse, cummean, Sampler
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
@@ -23,6 +25,7 @@ def parse_args(args):
         '--task', 
         choices=['cost', 'grad', 'learn'], 
         default='learn')
+    parser.add_argument('--env', choices=['custom', 'WIP'])
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
     parser.add_argument('--init_scale', type=float, default=3.0)
     parser.add_argument('--PQ_kappa', type=float, default=3.0)
@@ -41,9 +44,35 @@ def parse_args(args):
     parser.add_argument('--save_fn', type=str, default=None)
     return parser.parse_args(args)
 
+def get_env(args):
+    if args.env == 'custom'
+        env = LQR(
+            N=args.xu_dim[0],
+            M=args.xu_dim[1],
+            init_scale=args.init_scale,
+            max_steps=args.H,
+            Sigma_s_kappa=1.0,
+            Q_kappa=args.PQ_kappa,
+            P_kappa=args.PQ_kappa,
+            A_norm=args.AB_norm,
+            B_norm=args.AB_norm,
+            Sigma_s_scale=args.noise,
+            #random_init=True,
+        )
+    elif args.env == 'WIP':
+        env = WIP(
+            init_scale=args.init_scale,
+            max_steps=args.H,
+            Sigma_s_scale=args.noise,
+        )
+    else:
+        raise Exception('unsupported lqr env')
+    return env
+
 # error bar: https://stackoverflow.com/questions/12957582/plot-yerr-xerr-as-shaded-region-rather-than-error-bars
 #def compare_cost(horizon=100, num_trajs=1000, noise_scale=0.0, seed=0, save_dir=None, show_fig=False):
 def compare_cost(args):
+    assert args.env_type == 'lqr'
     set_seed(args.seed)
     env = LQR(
         init_scale=1.0,
@@ -163,20 +192,7 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
 
 def learning(args):
     set_seed(args.seed)
-    N, M = args.xu_dim
-    env = LQR(
-        N=N,
-        M=M,
-        init_scale=args.init_scale,
-        max_steps=args.H,
-        Sigma_s_kappa=1.0,
-        Q_kappa=args.PQ_kappa,
-        P_kappa=args.PQ_kappa,
-        A_norm=args.AB_norm,
-        B_norm=args.AB_norm,
-        Sigma_s_scale=args.noise,
-        #random_init=True,
-    )
+    env = get_env(args)
     sampler = Sampler(env, 4) # mp
     Sigma_a = np.diag(np.ones(env.M))
     Sigma_a_inv = np.linalg.inv(Sigma_a)
@@ -249,7 +265,6 @@ def learning(args):
         if args.show_fig:
             plt.show()
         if args.save_fig:
-            #plot.get_figure().savefig(args.save_fig)
             fig.savefig(args.save_fig)
     info = {**vars(args), 'out': out_set}
     return results, info
