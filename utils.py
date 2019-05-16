@@ -11,6 +11,7 @@ import subprocess
 import multiprocessing as mp
 from inspect import signature
 from pathlib import Path
+from termcolor import colored
 
 def is_git_diff():
     return bool(subprocess.check_output(['git', 'diff']))
