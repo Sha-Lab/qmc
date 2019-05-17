@@ -24,7 +24,7 @@ def parse_args(args):
         '--task', 
         choices=['cost', 'grad', 'learn'], 
         default='learn')
-    parser.add_argument('--env', choices=['custom', 'WIP'])
+    parser.add_argument('--env', choices=['custom', 'WIP', 'IP'])
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
     parser.add_argument('--init_scale', type=float, default=3.0)
     parser.add_argument('--PQ_kappa', type=float, default=3.0)
@@ -44,7 +44,7 @@ def parse_args(args):
     return parser.parse_args(args)
 
 def get_env(args):
-    if args.env == 'custom'
+    if args.env == 'custom':
         env = LQR(
             N=args.xu_dim[0],
             M=args.xu_dim[1],
@@ -60,6 +60,12 @@ def get_env(args):
         )
     elif args.env == 'WIP':
         env = WIP(
+            init_scale=args.init_scale,
+            max_steps=args.H,
+            Sigma_s_scale=args.noise,
+        )
+    elif args.env == 'IP':
+        env = InvertedPendulum(
             init_scale=args.init_scale,
             max_steps=args.H,
             Sigma_s_scale=args.noise,
@@ -147,7 +153,6 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
     Sigma_a_inv = np.linalg.inv(Sigma_a)
     print(env.Sigma_s)
     mc_grads = []
-    #grad = [] # debug
     for i in tqdm(range(num_trajs), 'mc'):
         noises = np.random.randn(env.max_steps, env.M)
         states, actions, rewards = rollout(env, K, noises)
@@ -229,8 +234,6 @@ def learning(args):
                 noises = np.random.randn(args.n_trajs, env.max_steps, env.M)
             data = sampler.sample(K, noises) # mp
             for states, actions, rewards in data: 
-            #for j in range(args.n_trajs):
-                #states, actions, rewards = rollout(env, K, noises[j])
                 grad.append(grad_fn(states, actions, rewards, K))
                 returns.append(rewards.sum())
                 if len(states) != args.H: 
@@ -253,10 +256,11 @@ def learning(args):
         optimal=tuple(map(lambda x: x.repeat(args.n_iters), train('optimal', env.optimal_controller(), no_grad, n_iters=1))),
     )
     if args.show_fig or args.save_fig is not None:
+        valid_results = {k: v for k, v in results.items() if k not in out_set}
         fig, axs = plt.subplots(ncols=3)
-        costs = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs[0])), 'cost': -rs[0]}) for name, rs in results.items()])  
-        grad_errors = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs[1])), 'grad_error': rs[1]}) for name, rs in results.items()]) 
-        grad_norms = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs[2])), 'grad_norm': rs[2]}) for name, rs in results.items()]) 
+        costs = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs[0])), 'cost': -rs[0]}) for name, rs in valid_results.items()])  
+        grad_errors = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs[1])), 'grad_error': rs[1]}) for name, rs in valid_results.items()]) 
+        grad_norms = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs[2])), 'grad_norm': rs[2]}) for name, rs in valid_results.items()]) 
         cost_plot = sns.lineplot(x='x', y='cost', hue='name', data=costs, ax=axs[0])
         grad_error_plot = sns.lineplot(x='x', y='grad_error', hue='name', data=grad_errors, ax=axs[1]) 
         grad_norm_plot = sns.lineplot(x='x', y='grad_norm', hue='name', data=grad_norms, ax=axs[2])
