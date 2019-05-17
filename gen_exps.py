@@ -33,22 +33,23 @@ def generate_args(exp_path, args, kwargs, variants, post_variant=None, touch=Tru
 @cmd()
 def search_learn(touch: int=1, shuffle: int=0):
     variants = {
-        '--env': ['IP'], # WIP
-        '--n_trajs': [80, 100, 150, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
-        '-lr': [0.00005],
-        '-H': [6], # 8
+        '--n_trajs': [80, 100, 150, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1500, 2000],
     }
     args = []
     kwargs = {
+        '--env': 'WIP', # IP
+        '-lr': 0.00005,
+        '-H': 8, # 6
+        '--init_scale': 0.1,
         '--task': 'learn',
         '--n_seeds': 50,
         '--n_iters': 1000,
         '--mode': 'collect',
     }
     def post_variant(variant):
-        variant['--save_fn'] = 'data/search_learn/{}-{}'.format(variant['--env'], variant['--n_trajs'])
+        variant['--save_fn'] = 'data/search_learn/{}-{}'.format(kwargs['--env'], variant['--n_trajs'])
         return variant
-    generate_args('exps/search_learn_{}'.format(variants['--env'][0]), args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
+    generate_args('exps/search_learn_{}'.format(kwargs['--env']), args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
 
 
 if __name__ == "__main__":
