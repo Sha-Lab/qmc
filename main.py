@@ -24,7 +24,7 @@ def parse_args(args):
         '--task', 
         choices=['cost', 'grad', 'learn'], 
         default='learn')
-    parser.add_argument('--env', choices=['custom', 'WIP', 'IP'])
+    parser.add_argument('--env', choices=['custom', 'WIP', 'IP'], default='custom')
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
     parser.add_argument('--init_scale', type=float, default=3.0)
     parser.add_argument('--PQ_kappa', type=float, default=3.0)
