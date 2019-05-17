@@ -37,12 +37,13 @@ class WIP(LQR):
              [0,    1.0,    0,      0       ],
              [0,    0,      250.0,   0       ],
              [0,    0,      0,      100.0    ]]) / 250
-        print('A:', np.linalg.norm(A), np.linalg.cond(A))
-        print('B:', np.linalg.norm(B), np.linalg.cond(B))
-        print('P:', np.linalg.norm(P), np.linalg.cond(P))
-        print('Q:', np.linalg.norm(Q), np.linalg.cond(Q))
+        #print('A:', np.linalg.norm(A), np.linalg.cond(A))
+        #print('B:', np.linalg.norm(B), np.linalg.cond(B))
+        #print('P:', np.linalg.norm(P), np.linalg.cond(P))
+        #print('Q:', np.linalg.norm(Q), np.linalg.cond(Q))
         super().__init__(*B.shape, A=A, B=B, P=P, Q=Q,
             init_scale=init_scale, max_steps=max_steps, Sigma_s_scale=Sigma_s_scale, seed=seed)
+        self.init_state *= np.array([1.0, 1e-5, 1.0, 1e-5]) # make the speed slow
 
 # inverted pendulum: https://github.com/Nikkhil16/Inverted_Pendulum/blob/master/inverted_pendulum.py
 class InvertedPendulum(LQR):
@@ -76,10 +77,11 @@ class InvertedPendulum(LQR):
             [0,0,10000,0],
             [0,0,0,100]
         ]) / 10000
-        print('A:', np.linalg.norm(A), np.linalg.cond(A))
-        print('B:', np.linalg.norm(B), np.linalg.cond(B))
-        print('P:', np.linalg.norm(P), np.linalg.cond(P))
-        print('Q:', np.linalg.norm(Q), np.linalg.cond(Q))
+        #print('A:', np.linalg.norm(A), np.linalg.cond(A))
+        #print('B:', np.linalg.norm(B), np.linalg.cond(B))
+        #print('P:', np.linalg.norm(P), np.linalg.cond(P))
+        #print('Q:', np.linalg.norm(Q), np.linalg.cond(Q))
         super().__init__(*B.shape, A=A, B=B, P=P, Q=Q,
             init_scale=init_scale, max_steps=max_steps, Sigma_s_scale=Sigma_s_scale, seed=seed)
+        self.init_state *= np.array([1.0, 1e-5, 1.0, 1e-5]) # make the speed slow
    
