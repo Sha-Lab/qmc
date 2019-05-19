@@ -185,3 +185,11 @@ class Sampler:
     def __del__(self):
         self.pool.close()
         self.pool.join()
+
+def cumulative_return(rewards, discount):
+    returns = []
+    cur_return = 0.0
+    for r in rewards[::-1]:
+        cur_return = discount * cur_return + r
+        returns.append(cur_return)
+    return returns[::-1]

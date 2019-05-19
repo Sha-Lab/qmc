@@ -10,7 +10,6 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm, trange
 from ipdb import slaunch_ipdb_on_exception
 
-from lqr import LQR
 from envs import *
 from utils import set_seed, rollout, mse, cummean, Sampler
 from torch.distributions import Uniform, Normal

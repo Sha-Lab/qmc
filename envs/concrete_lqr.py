@@ -1,8 +1,9 @@
 import numpy as np
-from lqr import LQR
+from .lqr import LQR
 
 # cartpole: https://github.com/neka-nat/ilqr-gym/blob/master/env/cartpole_continuous.py
 # It seems that in this example the A, B depends on state in a non-linear way
+# state feedback: http://www.cds.caltech.edu/~murray/books/AM05/pdf/am06-statefbk_16Sep06.pdf
 
 # https://github.com/wiany11/lqr-wip
 class WIP(LQR):
