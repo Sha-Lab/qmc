@@ -34,11 +34,11 @@ def generate_args(exp_path, args, kwargs, variants, post_variant=None, touch=Tru
 def search_learn(touch: int=1, shuffle: int=0):
     variants = {
         '--n_trajs': [80, 100, 150, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1500, 2000],
+        '-lr': [0.00001, 0.0001, 0.0003, 0.0006],
     }
     args = []
     kwargs = {
         '--env': 'WIP', # IP
-        '-lr': 0.00005,
         '-H': 8, # 6
         '--init_scale': 0.1,
         '--task': 'learn',
@@ -47,7 +47,7 @@ def search_learn(touch: int=1, shuffle: int=0):
         '--mode': 'collect',
     }
     def post_variant(variant):
-        variant['--save_fn'] = 'data/search_learn/{}-{}'.format(kwargs['--env'], variant['--n_trajs'])
+        variant['--save_fn'] = 'data/search_learn/{}-{}-{}'.format(kwargs['--env'], variant['--n_trajs'], variant['-lr'])
         return variant
     generate_args('exps/search_learn_{}'.format(kwargs['--env']), args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
 

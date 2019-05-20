@@ -3,7 +3,7 @@ from ipdb import slaunch_ipdb_on_exception
 from utils import batch_args, with_null
 from ipdb import slaunch_ipdb_on_exception
 # local file
-from main import main
+from lqr_main import main
 
 def get_config():
     parser = argparse.ArgumentParser()
