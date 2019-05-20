@@ -38,7 +38,7 @@ class Uniform_RQMC(Distribution):
         n_samples = int(torch.prod(torch.tensor(shape)))
         if n_samples == 1:
             print("Warning: RQMC sample size should be greater than 1.")
-        rand = qmc.sobol(N=n_samples, dim=self.dim, scrambled=1)
+        rand = qmc.sobol(N=n_samples, dim=self.dim, scrambled=1) # scrambled=0
         #rand = rqmc_py.random_sequence_rqmc(size_mv=self.dim, i=0, n=n_samples)
         # rand = qmc_py.sobol_sequence(N=n_samples, DIMEN=self.dim, IFLAG=1,
         #                              iSEED=np.random.randint(10**5))  # .transpose()
@@ -60,3 +60,7 @@ class Uniform_RQMC(Distribution):
     # TODO: How to deal with relative imports...
     # TODO: Deal with multi-dim sample shape / event_shape
     # TODO: What is the right way to deal if sample_shape is multi-dim
+
+if __name__ == "__main__":
+    dist = Uniform_RQMC(0, 1, dim=5)
+    print(dist.sample(torch.Size([10])))

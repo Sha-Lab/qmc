@@ -74,3 +74,7 @@ class Normal_RQMC(Distribution):
     # TODO: How to deal with relative imports...
     # TODO: Deal with multi-dim sample shape
     # TODO: What is the right way to deal if sample_shape is multi-dim
+
+if __name__ == "__main__":
+    dist = Normal_RQMC(loc=torch.zeros(5), scale=torch.ones(5))
+    print(dist.sample(torch.Size([10])))
