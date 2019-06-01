@@ -134,25 +134,26 @@ def compare_cost(args):
         plt.show()
     return mc_errors, rqmc_errors, info
 
-def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, show_fig=False):
-    set_seed(seed)
+#def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, show_fig=False):
+def compare_grad(args):
+    set_seed(args.seed)
     env = LQR(
         lims=100,
         init_scale=1.0,
-        max_steps=horizon,
+        max_steps=args.H,
         Sigma_s_kappa=1.0,
         Q_kappa=1.0,
         P_kappa=1.0,
         A_norm=1.0,
         B_norm=1.0,
-        Sigma_s_scale=noise_scale,
+        Sigma_s_scale=args.noise,
     )
     K = env.optimal_controller()
     Sigma_a = np.diag(np.ones(env.M))
     Sigma_a_inv = np.linalg.inv(Sigma_a)
     print(env.Sigma_s)
     mc_grads = []
-    for i in tqdm(range(num_trajs), 'mc'):
+    for i in tqdm(range(args.n_trajs), 'mc'):
         noises = np.random.randn(env.max_steps, env.M)
         states, actions, rewards = rollout(env, K, noises)
         mc_grads.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
@@ -162,8 +163,8 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
     rqmc_grads = []
     loc = torch.zeros(env.max_steps * env.M)
     scale = torch.ones(env.max_steps * env.M)
-    rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([num_trajs])).data.numpy()
-    for i in tqdm(range(num_trajs), 'rqmc'):
+    rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy()
+    for i in tqdm(range(args.n_trajs), 'rqmc'):
         states, actions, rewards = rollout(env, K, rqmc_noises[i].reshape(env.max_steps, env.M))
         rqmc_grads.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum())
     rqmc_grads = np.asarray(rqmc_grads)
@@ -173,11 +174,11 @@ def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, sho
 
     mc_errors = ((mc_means - expected_grad) ** 2).reshape(mc_means.shape[0], -1).mean(1) # why the sign is reversed?
     rqmc_errors = ((rqmc_means - expected_grad) ** 2).reshape(rqmc_means.shape[0], -1).mean(1)
-    info = dict(horizon=horizon, num_trajs=num_trajs, seed=seed)
-    if save_dir is not None:
-        with open(Path(save_dir, save_fn), 'wb') as f:
+    info = {**vars(args)}
+    if args.save_fn is not None:
+        with open(save_fn, 'wb') as f:
             dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, info=info), f)
-    if show_fig:
+    if args.show_fig:
         mc_data = pd.DataFrame({
             'name': 'mc',
             'x': np.arange(len(mc_errors)),
@@ -307,6 +308,8 @@ def main(args=None):
         exp_f = learning
     elif args.task == 'cost':
         exp_f = compare_cost
+    elif args.task == 'grad':
+        exp_f = compare_grad
     else:
         raise Exception('unsupported task')
     if args.mode == 'single':
