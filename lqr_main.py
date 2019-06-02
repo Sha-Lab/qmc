@@ -76,7 +76,6 @@ def get_env(args):
 # error bar: https://stackoverflow.com/questions/12957582/plot-yerr-xerr-as-shaded-region-rather-than-error-bars
 #def compare_cost(horizon=100, num_trajs=1000, noise_scale=0.0, seed=0, save_dir=None, show_fig=False):
 def compare_cost(args):
-    assert args.env_type == 'lqr'
     set_seed(args.seed)
     env = LQR(
         init_scale=1.0,
