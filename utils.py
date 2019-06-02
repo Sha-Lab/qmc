@@ -13,6 +13,21 @@ from inspect import signature
 from pathlib import Path
 from termcolor import colored
 
+DEVICE = torch.device('cpu')
+
+def select_device(gpu_id=-1):
+    global DEVICE
+    if gpu_id >= 0:
+        DEVICE = torch.device('cuda:%d' % (gpu_id))
+    else:
+        DEVICE = torch.device('cpu')
+
+def tensor(x, dtype=torch.float32): # debug
+    if torch.is_tensor(x):
+        return x.type(dtype)
+    x = torch.tensor(x, device=DEVICE, dtype=dtype)
+    return x
+
 def is_git_diff():
     return bool(subprocess.check_output(['git', 'diff']))
 
@@ -124,19 +139,16 @@ def batch_args(exp_path, exp_f, config=None):
                 push_args(args_str, exp_path)
                 break
 
-def set_seed(t, r=None, p=None, c=None):
-    if r is None:
-        r = t
-    if p is None:
-        p = r
-    torch.manual_seed(t)
-    random.seed(r)
-    np.random.seed(p)
-    if c is not None:
-      torch.cuda.manual_seed(c)
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    if 'torch' in sys.modules:
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
 
 # environment might has different random seed
-def rollout(env, K, noises):
+def rollout(env, policy, noises):
     states = []
     actions = []
     rewards = []
@@ -144,13 +156,18 @@ def rollout(env, K, noises):
     s = env.reset()
     cur_step = 0
     while not done:
-        a = K.dot(s) + noises[cur_step]
+        #a = K.dot(s) + noises[cur_step]
+        a = policy(s, noises[cur_step])
         next_s, r, done, _ = env.step(a)
         states.append(s)
         actions.append(a)
         rewards.append(r)
         s = next_s
         cur_step += 1
+    #print(states) # debug
+    #print(actions)
+    #print(rewards)
+    #exit()
     return np.asarray(states), np.asarray(actions), np.asarray(rewards)
   
 def mse(a, b):

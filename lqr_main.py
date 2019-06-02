@@ -7,11 +7,13 @@ import seaborn as sns
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from torch import nn
 from tqdm import tqdm, trange
 from ipdb import slaunch_ipdb_on_exception
 
 from envs import *
-from utils import set_seed, rollout, mse, cummean, Sampler
+from models import GaussianPolicy
+from utils import set_seed, rollout, mse, cummean, Sampler, select_device, tensor
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
@@ -76,7 +78,6 @@ def get_env(args):
 # error bar: https://stackoverflow.com/questions/12957582/plot-yerr-xerr-as-shaded-region-rather-than-error-bars
 #def compare_cost(horizon=100, num_trajs=1000, noise_scale=0.0, seed=0, save_dir=None, show_fig=False):
 def compare_cost(args):
-    assert args.env_type == 'lqr'
     set_seed(args.seed)
     env = LQR(
         init_scale=1.0,
@@ -89,12 +90,15 @@ def compare_cost(args):
         Sigma_s_scale=0.0,
     )
     K = env.optimal_controller()
+    mean_network = nn.Linear(*K.shape, bias=False)
+    mean_network.weight.data = tensor(K)
+    policy = GaussianPolicy(*K.shape, mean_network)
 
     mc_costs = [] # individual
     mc_means = [] # cumulative
     for i in tqdm(range(args.n_trajs), 'mc'):
         noises = np.random.randn(env.max_steps, env.M)
-        _, _, rewards = rollout(env, K, noises)
+        _, _, rewards = rollout(env, policy, noises)
         mc_costs.append(-rewards.sum())
         mc_means.append(np.mean(mc_costs))
 
@@ -104,7 +108,7 @@ def compare_cost(args):
     scale = torch.ones(env.max_steps * env.M)
     rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy()
     for i in tqdm(range(args.n_trajs), 'rqmc'):
-        _, _, rewards = rollout(env, K, rqmc_noises[i].reshape(env.max_steps, env.M))
+        _, _, rewards = rollout(env, policy, rqmc_noises[i].reshape(env.max_steps, env.M))
         rqmc_costs.append(-rewards.sum())
         rqmc_means.append(np.mean(rqmc_costs))
 
@@ -303,6 +307,7 @@ def collect_seeds(save_fn, sample_f, sample_args, success_f, n_seeds=50, max_see
         dill.dump(results, f)
 
 def main(args=None):
+    select_device(0 if torch.cuda.is_available() else -1)
     args = parse_args(args)
     if args.task == 'learn':
         exp_f = learning
