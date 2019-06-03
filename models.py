@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 from torch import nn
-from utils import DEVICE, tensor
+from utils import Config, tensor
 
 def get_mlp(hidden_sizes, gate=None, gate_output=False):
     layers = []
@@ -32,7 +32,7 @@ class GaussianPolicy(Policy):
         self.mean = mean_network
         self.std = torch.zeros(action_dim)
         if learn_std: self.std = nn.Parameter(self.std)
-        self.to(DEVICE)
+        self.to(Config.DEVICE)
 
     def distribution(self, obs):
         #mean = torch.tanh(self.mean(obs))

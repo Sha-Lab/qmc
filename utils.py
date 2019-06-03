@@ -13,19 +13,19 @@ from inspect import signature
 from pathlib import Path
 from termcolor import colored
 
-DEVICE = torch.device('cpu')
+class Config:
+    DEVICE = torch.device('cpu')
 
 def select_device(gpu_id=-1):
-    global DEVICE
     if gpu_id >= 0:
-        DEVICE = torch.device('cuda:%d' % (gpu_id))
+        Config.DEVICE = torch.device('cuda:%d' % (gpu_id))
     else:
-        DEVICE = torch.device('cpu')
+        Config.DEVICE = torch.device('cpu')
 
 def tensor(x, dtype=torch.float32): # debug
     if torch.is_tensor(x):
         return x.type(dtype)
-    x = torch.tensor(x, device=DEVICE, dtype=dtype)
+    x = torch.tensor(x, device=Config.DEVICE, dtype=dtype)
     return x
 
 def is_git_diff():
