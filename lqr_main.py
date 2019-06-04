@@ -13,7 +13,7 @@ from ipdb import slaunch_ipdb_on_exception
 
 from envs import *
 from models import GaussianPolicy
-from utils import set_seed, rollout, mse, cummean, Sampler, select_device, tensor
+from utils import set_seed, rollout, mse, cummean, Sampler, select_device, tensor, policy_gradient
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
@@ -153,14 +153,19 @@ def compare_grad(args):
         Sigma_s_scale=args.noise,
     )
     K = env.optimal_controller()
+    mean_network = nn.Linear(*K.shape, bias=False)
+    mean_network.weight.data = tensor(K)
+    policy = GaussianPolicy(*K.shape, mean_network)
+
     Sigma_a = np.diag(np.ones(env.M))
     Sigma_a_inv = np.linalg.inv(Sigma_a)
     print(env.Sigma_s)
     mc_grads = []
     for i in tqdm(range(args.n_trajs), 'mc'):
         noises = np.random.randn(env.max_steps, env.M)
-        states, actions, rewards = rollout(env, K, noises)
-        mc_grads.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
+        states, actions, rewards = rollout(env, policy, noises)
+        mc_grads.append(policy_gradient(states, actions, rewards, policy))
+        #mc_grads.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
     mc_grads = np.asarray(mc_grads)
     mc_means = np.cumsum(mc_grads, axis=0) / np.arange(1, len(mc_grads) + 1)[:, np.newaxis, np.newaxis]
     
@@ -169,8 +174,9 @@ def compare_grad(args):
     scale = torch.ones(env.max_steps * env.M)
     rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy()
     for i in tqdm(range(args.n_trajs), 'rqmc'):
-        states, actions, rewards = rollout(env, K, rqmc_noises[i].reshape(env.max_steps, env.M))
-        rqmc_grads.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum())
+        states, actions, rewards = rollout(env, policy, rqmc_noises[i].reshape(env.max_steps, env.M))
+        rqmc_grads.append(policy_gradient(states, actions, rewards, policy))
+        #rqmc_grads.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum())
     rqmc_grads = np.asarray(rqmc_grads)
     rqmc_means = np.cumsum(rqmc_grads, axis=0) / np.arange(1, len(rqmc_grads) + 1)[:, np.newaxis, np.newaxis]
 

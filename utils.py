@@ -22,9 +22,9 @@ def select_device(gpu_id=-1):
     else:
         Config.DEVICE = torch.device('cpu')
 
-def tensor(x, dtype=torch.float32): # debug
+def tensor(x, dtype=torch.float32):
     if torch.is_tensor(x):
-        return x.type(dtype)
+        return x.to(dtype=dtype, device=Config.DEVICE)
     x = torch.tensor(x, device=Config.DEVICE, dtype=dtype)
     return x
 
@@ -210,3 +210,9 @@ def cumulative_return(rewards, discount):
         cur_return = discount * cur_return + r
         returns.append(cur_return)
     return returns[::-1]
+
+def policy_gradient(states, actions, rewards, policy):
+    policy.zero_grad() # tricky function!
+    log_probs = policy.distribution(states).log_prob(tensor(actions)).sum(-1)
+    (log_probs.sum() * tensor(rewards).sum()).backward()
+    return np.array(policy.mean.weight.grad.detach().cpu().numpy()) # needs to copy out... This is weird.

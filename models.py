@@ -35,9 +35,11 @@ class GaussianPolicy(Policy):
         self.to(Config.DEVICE)
 
     def distribution(self, obs):
-        #mean = torch.tanh(self.mean(obs))
+        obs = tensor(obs)
         mean = self.mean(obs)
-        dist = torch.distributions.Normal(mean, F.softplus(self.std))
+        dist = torch.distributions.Normal(mean, tensor(torch.ones_like(self.std)))
+        #mean = torch.tanh(self.mean(obs))
+        #dist = torch.distributions.Normal(mean, F.softplus(self.std))
         #log_prob = dist.log_prob(action).sum(-1).unsqueeze(-1)
         return dist 
 
