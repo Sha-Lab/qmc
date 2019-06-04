@@ -31,8 +31,8 @@ def parse_args(args):
     parser.add_argument('-H', type=int, default=10, help='horizon')
     parser.add_argument('--noise', type=float, default=0.0, help='noise scale')
     parser.add_argument('--n_trajs', type=int, default=800, help='number of trajectories used')
-    parser.add_argument('--n_iters', type=int, default=600, help='number of iterations of training')
-    parser.add_argument('-lr', type=float, default=0.01)
+    parser.add_argument('--n_iters', type=int, default=200, help='number of iterations of training')
+    parser.add_argument('-lr', type=float, default=5e-5)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--show_fig', action='store_true')
     parser.add_argument('--save_fig', type=str, default=None)
@@ -196,7 +196,7 @@ def compare_grad(args):
 def learning(args):
     set_seed(args.seed)
     env = get_env(args)
-    sampler = Sampler(env, 4) # mp
+    sampler = Sampler(env, 1) # mp
     Sigma_a = np.diag(np.ones(env.M))
     Sigma_a_inv = np.linalg.inv(Sigma_a)
     init_K = np.random.randn(env.M, env.N)
@@ -251,7 +251,7 @@ def learning(args):
     results = dict(
         mc=train('mc', init_K, variance_reduced_grad),
         rqmc=train('rqmc', init_K, variance_reduced_grad, use_rqmc=True),
-        full=train('full', init_K, full_grad),        
+        #full=train('full', init_K, full_grad),        
         optimal=tuple(map(lambda x: x.repeat(args.n_iters), train('optimal', env.optimal_controller(), no_grad, n_iters=1))),
     )
     if args.show_fig or args.save_fig is not None:
@@ -264,10 +264,10 @@ def learning(args):
         grad_error_plot = sns.lineplot(x='x', y='grad_error', hue='name', data=grad_errors, ax=axs[1]) 
         grad_norm_plot = sns.lineplot(x='x', y='grad_norm', hue='name', data=grad_norms, ax=axs[2])
         plt.yscale('log')
-        if args.show_fig:
-            plt.show()
         if args.save_fig:
             fig.savefig(args.save_fig)
+        if args.show_fig:
+            plt.show()
     info = {**vars(args), 'out': out_set}
     return results, info
 
