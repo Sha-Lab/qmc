@@ -196,8 +196,8 @@ class Sampler:
         for seed in np.random.randint(100000000, size=n_processes): init_seeds.put(seed) # initseeds
         self.pool = mp.Pool(n_processes, sample_init, (env, init_seeds))
         
-    def sample(self, K, noises):
-        return self.pool.starmap_async(_rollout, [(K, noise) for noise in noises]).get()
+    def sample(self, policy, noises): # might cost problems
+        return self.pool.starmap_async(_rollout, [(policy, noise) for noise in noises]).get()
 
     def __del__(self):
         self.pool.close()
@@ -211,8 +211,14 @@ def cumulative_return(rewards, discount):
         returns.append(cur_return)
     return returns[::-1]
 
+# get the exact gradient, not suitable for backprop
 def policy_gradient(states, actions, rewards, policy):
     policy.zero_grad() # tricky function!
     log_probs = policy.distribution(states).log_prob(tensor(actions)).sum(-1)
     (log_probs.sum() * tensor(rewards).sum()).backward()
     return np.array(policy.mean.weight.grad.detach().cpu().numpy()) # needs to copy out... This is weird.
+
+# this is used for backprop
+def policy_gradient_loss(states, actions, rewards, policy):
+    log_probs = policy.distribution(states).log_prob(tensor(actions)).sum(-1)
+    return log_probs.sum() * tensor(rewards).sum()

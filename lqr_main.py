@@ -13,11 +13,12 @@ from ipdb import slaunch_ipdb_on_exception
 
 from envs import *
 from models import GaussianPolicy
-from utils import set_seed, rollout, mse, cummean, Sampler, select_device, tensor, policy_gradient
+from utils import set_seed, rollout, mse, cummean, Sampler, select_device, tensor, policy_gradient, policy_gradient_loss
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
-# TODO: make sure compare_cost produce the same result
+# TODO: 
+# check torch's multiprocessing, it might cost problems for sampler
 
 def parse_args(args):
     parser = argparse.ArgumentParser()
@@ -33,8 +34,8 @@ def parse_args(args):
     parser.add_argument('-H', type=int, default=10, help='horizon')
     parser.add_argument('--noise', type=float, default=0.0, help='noise scale')
     parser.add_argument('--n_trajs', type=int, default=800, help='number of trajectories used')
-    parser.add_argument('--n_iters', type=int, default=600, help='number of iterations of training')
-    parser.add_argument('-lr', type=float, default=0.01)
+    parser.add_argument('--n_iters', type=int, default=200, help='number of iterations of training')
+    parser.add_argument('-lr', type=float, default=5e-5)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--show_fig', action='store_true')
     parser.add_argument('--save_fig', type=str, default=None)
@@ -90,7 +91,7 @@ def compare_cost(args):
         Sigma_s_scale=0.0,
     )
     K = env.optimal_controller()
-    mean_network = nn.Linear(*K.shape, bias=False)
+    mean_network = nn.Linear(*K.shape[::-1], bias=False)
     mean_network.weight.data = tensor(K)
     policy = GaussianPolicy(*K.shape, mean_network)
 
@@ -153,9 +154,9 @@ def compare_grad(args):
         Sigma_s_scale=args.noise,
     )
     K = env.optimal_controller()
-    mean_network = nn.Linear(*K.shape, bias=False)
+    mean_network = nn.Linear(*K.shape[::-1], bias=False)
     mean_network.weight.data = tensor(K)
-    policy = GaussianPolicy(*K.shape, mean_network)
+    policy = GaussianPolicy(*K.shape[::-1], mean_network)
 
     Sigma_a = np.diag(np.ones(env.M))
     Sigma_a_inv = np.linalg.inv(Sigma_a)
@@ -207,7 +208,7 @@ def compare_grad(args):
 def learning(args):
     set_seed(args.seed)
     env = get_env(args)
-    sampler = Sampler(env, 4) # mp
+    sampler = Sampler(env, 1) # mp
     Sigma_a = np.diag(np.ones(env.M))
     Sigma_a_inv = np.linalg.inv(Sigma_a)
     init_K = np.random.randn(env.M, env.N)
@@ -224,6 +225,10 @@ def learning(args):
     def train(name, init_K, grad_fn, use_rqmc=False, n_iters=None):
         if n_iters is None: n_iters = args.n_iters
         K = np.copy(init_K)
+        mean_network = nn.Linear(*K.shape[::-1], bias=False)
+        mean_network.weight.data = tensor(K)
+        policy = GaussianPolicy(*K.shape[::-1], mean_network) # change to network
+        optim = torch.optim.SGD(policy.parameters(), args.lr)
         all_returns = []
         grad_errors = []
         grad_norms = []
@@ -236,33 +241,49 @@ def learning(args):
                 continue
             grad = []
             returns = []
+            pg_loss = [] # policy gradient loss
             if use_rqmc:
                 loc = torch.zeros(env.max_steps * env.M)
                 scale = torch.ones(env.max_steps * env.M) 
                 noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy().reshape(args.n_trajs, env.max_steps, env.M)
             else:
                 noises = np.random.randn(args.n_trajs, env.max_steps, env.M)
-            data = sampler.sample(K, noises) # mp
+            #data = sampler.sample(policy, noises) # mp
+            data = [rollout(env, policy, noises[0])] # debug
             for states, actions, rewards in data: 
                 grad.append(grad_fn(states, actions, rewards, K))
+                bp_grad = policy_gradient(states, actions, rewards, policy) # debug
+                #print(np.abs(grad[-1] - bp_grad).max())
+                #print(bp_grad - grad[-1])
+                pg_loss.append(policy_gradient_loss(states, actions, rewards, policy))
                 returns.append(rewards.sum())
                 if len(states) != args.H: 
                     out_set.add(name)
+            # calculate the torch gradient
+            optim.zero_grad()
+            pg_loss = torch.mean(torch.stack(pg_loss))
+            pg_loss.backward()
+            ## end of calculation
             grad = np.mean(grad, axis=0)
             grad_norm = np.linalg.norm(grad) #mse(grad, env.expected_policy_gradient(K, Sigma_a))
             grad_error = mse(grad, env.expected_policy_gradient(K, Sigma_a))
             grad_norms.append(grad_norm)
             grad_errors.append(grad_error)
+            print((policy.mean.weight.grad.detach().cpu().numpy() - grad))
+            exit()
             #K += lr / np.maximum(1.0, np.linalg.norm(grad)) * grad # constant norm of gradient
             #K += args.lr / (i+1) * grad # decreasing learning rate!
-            K += args.lr * grad # constant learning rate
+            #K += args.lr * grad # constant learning rate
+            #### optim.step()!!!
             all_returns.append(np.mean(returns))
             prog.set_postfix(ret=all_returns[-1], grad_norm=grad_norm, grad_err=grad_error)
         return np.asarray(all_returns), np.asarray(grad_errors), np.asarray(grad_norms)
     results = dict(
-        mc=train('mc', init_K, variance_reduced_grad),
-        rqmc=train('rqmc', init_K, variance_reduced_grad, use_rqmc=True),
-        full=train('full', init_K, full_grad),        
+        #mc=train('mc', init_K, variance_reduced_grad),
+        #rqmc=train('rqmc', init_K, variance_reduced_grad, use_rqmc=True),
+        mc=train('mc', init_K, reinforce_grad),
+        rqmc=train('rqmc', init_K, reinforce_grad, use_rqmc=True),
+        #full=train('full', init_K, full_grad),        
         optimal=tuple(map(lambda x: x.repeat(args.n_iters), train('optimal', env.optimal_controller(), no_grad, n_iters=1))),
     )
     if args.show_fig or args.save_fig is not None:
@@ -275,10 +296,10 @@ def learning(args):
         grad_error_plot = sns.lineplot(x='x', y='grad_error', hue='name', data=grad_errors, ax=axs[1]) 
         grad_norm_plot = sns.lineplot(x='x', y='grad_norm', hue='name', data=grad_norms, ax=axs[2])
         plt.yscale('log')
-        if args.show_fig:
-            plt.show()
         if args.save_fig:
             fig.savefig(args.save_fig)
+        if args.show_fig:
+            plt.show()
     info = {**vars(args), 'out': out_set}
     return results, info
 
