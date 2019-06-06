@@ -81,8 +81,11 @@ def get_env(args):
 def compare_cost(args):
     set_seed(args.seed)
     env = LQR(
+        N=20,
+        M=12,
         init_scale=1.0,
-        max_steps=100,
+        #max_steps=100,
+        max_steps=10,
         Sigma_s_kappa=1.0,
         Q_kappa=1.0,
         P_kappa=1.0,
