@@ -22,7 +22,7 @@ def select_device(gpu_id=-1):
     else:
         Config.DEVICE = torch.device('cpu')
 
-def tensor(x, dtype=torch.float32):
+def tensor(x, dtype=torch.float32): # for better precision!
     if torch.is_tensor(x):
         return x.to(dtype=dtype, device=Config.DEVICE)
     x = torch.tensor(x, device=Config.DEVICE, dtype=dtype)
@@ -222,3 +222,8 @@ def policy_gradient(states, actions, rewards, policy):
 def policy_gradient_loss(states, actions, rewards, policy):
     log_probs = policy.distribution(states).log_prob(tensor(actions)).sum(-1)
     return log_probs.sum() * tensor(rewards).sum()
+
+def variance_reduced_pg_loss(states, actions, rewards, policy):
+    log_probs = policy.distribution(states).log_prob(tensor(actions)).sum(-1)
+    returns = rewards[::-1].cumsum()[::-1].copy()
+    return (log_probs * tensor(returns)).sum()

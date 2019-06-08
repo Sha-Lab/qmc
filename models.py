@@ -7,7 +7,12 @@ def get_mlp(hidden_sizes, gate=None, gate_output=False):
     layers = []
     input_dim = hidden_sizes[0]
     for output_dim in hidden_sizes[1:]:
-        layers.append(nn.Linear(input_dim, output_dim))
+        layer = nn.Linear(input_dim, output_dim)
+        # init
+        #torch.nn.init.xavier_uniform_(layer.weight.data)
+        torch.nn.init.orthogonal_(layer.weight.data)
+        torch.nn.init.constant_(layer.bias.data, 0)
+        layers.append(layer)
         if gate: layers.append(gate()) 
         input_dim = output_dim
     if gate is not None and not gate_output: layers = layers[:-1]

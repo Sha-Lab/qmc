@@ -12,8 +12,8 @@ from tqdm import tqdm, trange
 from ipdb import slaunch_ipdb_on_exception
 
 from envs import *
-from models import GaussianPolicy
-from utils import set_seed, rollout, mse, cummean, Sampler, select_device, tensor, policy_gradient, policy_gradient_loss
+from models import GaussianPolicy, get_mlp
+from utils import set_seed, rollout, mse, cummean, Sampler, select_device, tensor, policy_gradient, policy_gradient_loss, variance_reduced_pg_loss
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
@@ -156,7 +156,8 @@ def compare_grad(args):
         B_norm=1.0,
         Sigma_s_scale=args.noise,
     )
-    K = env.optimal_controller()
+    #K = env.optimal_controller()
+    K = np.random.randn(env.M, env.N) # debug, this one seems to work worse, by 1 magnitude
     mean_network = nn.Linear(*K.shape[::-1], bias=False)
     mean_network.weight.data = tensor(K)
     policy = GaussianPolicy(*K.shape[::-1], mean_network)
@@ -169,6 +170,9 @@ def compare_grad(args):
         noises = np.random.randn(env.max_steps, env.M)
         states, actions, rewards = rollout(env, policy, noises)
         mc_grads.append(policy_gradient(states, actions, rewards, policy))
+        origin_grad = Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()
+        #print(mc_grads[-1] - origin_grad)
+        #exit()
         #mc_grads.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
     mc_grads = np.asarray(mc_grads)
     mc_means = np.cumsum(mc_grads, axis=0) / np.arange(1, len(mc_grads) + 1)[:, np.newaxis, np.newaxis]
@@ -228,8 +232,10 @@ def learning(args):
     def train(name, init_K, grad_fn, use_rqmc=False, n_iters=None):
         if n_iters is None: n_iters = args.n_iters
         K = np.copy(init_K)
-        mean_network = nn.Linear(*K.shape[::-1], bias=False)
-        mean_network.weight.data = tensor(K)
+        #mean_network = nn.Linear(*K.shape[::-1], bias=True) # bias = False
+        #mean_network.weight.data = tensor(K)
+        mean_network = get_mlp((K.shape[1], 16, K.shape[0]), gate=nn.ReLU)
+        print(mean_network)
         policy = GaussianPolicy(*K.shape[::-1], mean_network) # change to network
         optim = torch.optim.SGD(policy.parameters(), args.lr)
         all_returns = []
@@ -251,41 +257,46 @@ def learning(args):
                 noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy().reshape(args.n_trajs, env.max_steps, env.M)
             else:
                 noises = np.random.randn(args.n_trajs, env.max_steps, env.M)
-            #data = sampler.sample(policy, noises) # mp
-            data = [rollout(env, policy, noises[0])] # debug
+            data = sampler.sample(policy, noises) # mp
+            #data = [rollout(env, policy, noises[0])] # debug
             for states, actions, rewards in data: 
                 grad.append(grad_fn(states, actions, rewards, K))
-                bp_grad = policy_gradient(states, actions, rewards, policy) # debug
+                #bp_grad = policy_gradient(states, actions, rewards, policy) # debug, works even worse
                 #print(np.abs(grad[-1] - bp_grad).max())
                 #print(bp_grad - grad[-1])
-                pg_loss.append(policy_gradient_loss(states, actions, rewards, policy))
+                pg_loss.append(variance_reduced_pg_loss(states, actions, rewards, policy))
                 returns.append(rewards.sum())
                 if len(states) != args.H: 
                     out_set.add(name)
             # calculate the torch gradient
             optim.zero_grad()
-            pg_loss = torch.mean(torch.stack(pg_loss))
+            pg_loss = -torch.mean(torch.stack(pg_loss))
             pg_loss.backward()
             ## end of calculation
             grad = np.mean(grad, axis=0)
-            grad_norm = np.linalg.norm(grad) #mse(grad, env.expected_policy_gradient(K, Sigma_a))
-            grad_error = mse(grad, env.expected_policy_gradient(K, Sigma_a))
-            grad_norms.append(grad_norm)
-            grad_errors.append(grad_error)
-            print((policy.mean.weight.grad.detach().cpu().numpy() - grad))
-            exit()
+            #grad_norm = np.linalg.norm(grad) #mse(grad, env.expected_policy_gradient(K, Sigma_a))
+            #grad_error = mse(grad, env.expected_policy_gradient(K, Sigma_a))
+            #grad_norms.append(grad_norm)
+            #grad_errors.append(grad_error)
+            #print((policy.mean.weight.grad.detach().cpu().numpy() + grad))
+            #exit() # debug 
             #K += lr / np.maximum(1.0, np.linalg.norm(grad)) * grad # constant norm of gradient
             #K += args.lr / (i+1) * grad # decreasing learning rate!
             #K += args.lr * grad # constant learning rate
+            optim.step()
+            #diff = np.abs(K - policy.mean.weight.data.detach().cpu().numpy()).max()
+            #print(np.linalg.norm(K), np.linalg.norm(policy.mean.weight.data.detach().cpu().numpy()))
+            #exit()
             #### optim.step()!!!
             all_returns.append(np.mean(returns))
-            prog.set_postfix(ret=all_returns[-1], grad_norm=grad_norm, grad_err=grad_error)
+            #prog.set_postfix(ret=all_returns[-1], grad_norm=grad_norm, grad_err=grad_error)
+            prog.set_postfix(ret=all_returns[-1])
         return np.asarray(all_returns), np.asarray(grad_errors), np.asarray(grad_norms)
     results = dict(
         #mc=train('mc', init_K, variance_reduced_grad),
         #rqmc=train('rqmc', init_K, variance_reduced_grad, use_rqmc=True),
-        mc=train('mc', init_K, reinforce_grad),
-        rqmc=train('rqmc', init_K, reinforce_grad, use_rqmc=True),
+        mc=train('mc', init_K, variance_reduced_grad),
+        rqmc=train('rqmc', init_K, variance_reduced_grad, use_rqmc=True),
         #full=train('full', init_K, full_grad),        
         optimal=tuple(map(lambda x: x.repeat(args.n_iters), train('optimal', env.optimal_controller(), no_grad, n_iters=1))),
     )
