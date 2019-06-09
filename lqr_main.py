@@ -20,6 +20,7 @@ from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
 # TODO: 
 # check torch's multiprocessing, it might cost problems for sampler
+# make vectorized sampler to support gpu samping (multiprocessing with one gpu is not efficient)
 
 def parse_args(args):
     parser = argparse.ArgumentParser()
@@ -321,7 +322,8 @@ def collect_seeds(save_fn, sample_f, sample_args, success_f, n_seeds=50, max_see
         dill.dump(results, f)
 
 def main(args=None):
-    select_device(0 if torch.cuda.is_available() else -1)
+    #select_device(0 if torch.cuda.is_available() else -1)
+    select_device(-1)
     args = parse_args(args)
     if args.task == 'learn':
         exp_f = learning
