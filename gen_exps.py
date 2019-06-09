@@ -2,6 +2,7 @@ import random
 from itertools import product
 from utils import cmd, cmd_run
 from pathlib import Path
+from ipdb import launch_ipdb_on_exception
 
 def generate_cmd(args=None, kwargs=None):
     cmds = ''
@@ -51,6 +52,29 @@ def search_learn(touch: int=1, shuffle: int=0):
         return variant
     generate_args('exps/search_learn_{}'.format(kwargs['--env']), args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
 
+@cmd()
+def search_network(touch: int=1, shuffle: int=0):
+    variants = {
+        '--n_trajs': [60, 100, 150, 200, 300],
+        '-lr': [0.0001, 0.0005, 0.001],
+        '-H': [5, 10, 15],
+        '--init_scale': [1.0, 3.0, 5.0],
+    }
+    args = []
+    kwargs = {
+        '--task': 'learn',
+        '--n_iters': 300,
+        '--n_seeds': 50,
+        '--mode': 'collect',
+        '--init_policy': 'mlp',
+        '--n_workers': 8,
+    }
+    def post_variant(variant):
+        variant['--save_fn'] = 'data/search_network/{}-{}-{}-{}'.format(*[variant[k] for k in ['--n_trajs', '-lr', '-H', '--init_scale']])
+        return variant
+    generate_args('exps/search_network', args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
+
 
 if __name__ == "__main__":
-    cmd_run()
+    with launch_ipdb_on_exception():
+        cmd_run()
