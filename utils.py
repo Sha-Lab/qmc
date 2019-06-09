@@ -8,7 +8,7 @@ import inspect
 import filelock
 import traceback
 import subprocess
-import multiprocessing as mp
+import torch.multiprocessing as mp
 from inspect import signature
 from pathlib import Path
 from termcolor import colored
@@ -22,10 +22,10 @@ def select_device(gpu_id=-1):
     else:
         Config.DEVICE = torch.device('cpu')
 
-def tensor(x, dtype=torch.float32): # for better precision!
+def tensor(x, dtype=torch.float32, requires_grad=False): # for better precision!
     if torch.is_tensor(x):
         return x.to(dtype=dtype, device=Config.DEVICE)
-    x = torch.tensor(x, device=Config.DEVICE, dtype=dtype)
+    x = torch.tensor(x, device=Config.DEVICE, dtype=dtype, requires_grad=requires_grad)
     return x
 
 def is_git_diff():
@@ -211,19 +211,14 @@ def cumulative_return(rewards, discount):
         returns.append(cur_return)
     return returns[::-1]
 
-# get the exact gradient, not suitable for backprop
-def policy_gradient(states, actions, rewards, policy):
-    policy.zero_grad() # tricky function!
-    log_probs = policy.distribution(states).log_prob(tensor(actions)).sum(-1)
-    (log_probs.sum() * tensor(rewards).sum()).backward()
-    return np.array(policy.mean.weight.grad.detach().cpu().numpy()) # needs to copy out... This is weird.
-
-# this is used for backprop
-def policy_gradient_loss(states, actions, rewards, policy):
+def reinforce_loss(states, actions, rewards, policy):
     log_probs = policy.distribution(states).log_prob(tensor(actions)).sum(-1)
     return log_probs.sum() * tensor(rewards).sum()
 
-def variance_reduced_pg_loss(states, actions, rewards, policy):
+def variance_reduced_loss(states, actions, rewards, policy):
     log_probs = policy.distribution(states).log_prob(tensor(actions)).sum(-1)
     returns = rewards[::-1].cumsum()[::-1].copy()
     return (log_probs * tensor(returns)).sum()
+
+def no_loss(states, actions, rewards, policy):
+    return tensor(0.0, requires_grad=True)

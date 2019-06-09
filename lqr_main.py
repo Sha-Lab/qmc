@@ -1,6 +1,7 @@
 import sys
 import gym
 import torch
+import copy
 import dill
 import argparse
 import seaborn as sns
@@ -13,7 +14,7 @@ from ipdb import slaunch_ipdb_on_exception
 
 from envs import *
 from models import GaussianPolicy, get_mlp
-from utils import set_seed, rollout, mse, cummean, Sampler, select_device, tensor, policy_gradient, policy_gradient_loss, variance_reduced_pg_loss
+from utils import set_seed, rollout, mse, cummean, Sampler, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
@@ -36,12 +37,14 @@ def parse_args(args):
     parser.add_argument('--n_trajs', type=int, default=800, help='number of trajectories used')
     parser.add_argument('--n_iters', type=int, default=200, help='number of iterations of training')
     parser.add_argument('-lr', type=float, default=5e-5)
+    parser.add_argument('--init_policy', choices=['optimal', 'linear', 'linear_bias', 'mlp'], default='linear')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--show_fig', action='store_true')
     parser.add_argument('--save_fig', type=str, default=None)
     parser.add_argument('--mode', choices=['single', 'over', 'collect'], default='single')
     parser.add_argument('--n_seeds', type=int, default=200)
     parser.add_argument('--max_seed', type=int, default=200)
+    parser.add_argument('--n_workers', type=int, default=1)
     parser.add_argument('--save_fn', type=str, default=None)
     return parser.parse_args(args)
 
@@ -76,6 +79,25 @@ def get_env(args):
         raise Exception('unsupported lqr env')
     return env
 
+def get_policy(args, env):    
+    if args.init_policy == 'optimal':
+        K = env.optimal_controller()
+        mean_network = nn.Linear(*K.shape[::-1], bias=False)
+        mean_network.weight.data = tensor(K)
+    elif args.init_policy == 'linear':
+        K = np.random.randn(env.M, env.N)
+        mean_network = nn.Linear(*K.shape[::-1], bias=False)
+        mean_network.weight.data = tensor(K)
+    elif args.init_policy == 'linear_bias':
+        K = np.random.randn(env.M, env.N)
+        mean_network = nn.Linear(*K.shape[::-1], bias=True)
+        mean_network.weight.data = tensor(K)
+    elif args.init_policy == 'mlp':
+        mean_network = get_mlp((env.N, 16, env.M), gate=nn.ReLU)
+    else:
+        raise Exception('unsupported policy type')
+    return GaussianPolicy(env.N, env.M, mean_network)
+
 # error bar: https://stackoverflow.com/questions/12957582/plot-yerr-xerr-as-shaded-region-rather-than-error-bars
 #def compare_cost(horizon=100, num_trajs=1000, noise_scale=0.0, seed=0, save_dir=None, show_fig=False):
 def compare_cost(args):
@@ -96,7 +118,7 @@ def compare_cost(args):
     K = env.optimal_controller()
     mean_network = nn.Linear(*K.shape[::-1], bias=False)
     mean_network.weight.data = tensor(K)
-    policy = GaussianPolicy(*K.shape, mean_network)
+    policy = GaussianPolicy(*K.shape[::-1], mean_network)
 
     mc_costs = [] # individual
     mc_means = [] # cumulative
@@ -215,42 +237,22 @@ def compare_grad(args):
 def learning(args):
     set_seed(args.seed)
     env = get_env(args)
-    sampler = Sampler(env, 1) # mp
-    Sigma_a = np.diag(np.ones(env.M))
-    Sigma_a_inv = np.linalg.inv(Sigma_a)
-    init_K = np.random.randn(env.M, env.N)
+    sampler = Sampler(env, args.n_workers) # mp
+    init_policy = get_policy(args, env)
+    print(init_policy)
     out_set = set()
-    def reinforce_grad(states, actions, rewards, K):
-        return Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()
-    def variance_reduced_grad(states, actions, rewards, K):
-        Rs = rewards[::-1].cumsum()[::-1]
-        return Sigma_a_inv @ (actions - states @ K.T).T @ (states * Rs[:,None])
-    def full_grad(states, actions, rewards, K):
-        return env.expected_policy_gradient(K, Sigma_a)
-    def no_grad(states, actions, rewards, K):
-        return np.zeros_like(K)
-    def train(name, init_K, grad_fn, use_rqmc=False, n_iters=None):
+    def train(name, loss_fn, init_policy, use_rqmc=False, n_iters=None):
         if n_iters is None: n_iters = args.n_iters
-        K = np.copy(init_K)
-        #mean_network = nn.Linear(*K.shape[::-1], bias=True) # bias = False
-        #mean_network.weight.data = tensor(K)
-        mean_network = get_mlp((K.shape[1], 16, K.shape[0]), gate=nn.ReLU)
-        print(mean_network)
-        policy = GaussianPolicy(*K.shape[::-1], mean_network) # change to network
+        policy = copy.deepcopy(init_policy)
         optim = torch.optim.SGD(policy.parameters(), args.lr)
         all_returns = []
-        grad_errors = []
-        grad_norms = []
         prog = trange(n_iters, desc=name)
-        for i in prog:
+        for _ in prog:
             if name in out_set or (name == 'full' and len(out_set) == 2): # fast skip
                 all_returns.append(np.nan)
-                grad_errors.append(np.nan)
-                grad_norms.append(np.nan)
                 continue
-            grad = []
             returns = []
-            pg_loss = [] # policy gradient loss
+            loss = [] # policy gradient loss
             if use_rqmc:
                 loc = torch.zeros(env.max_steps * env.M)
                 scale = torch.ones(env.max_steps * env.M) 
@@ -258,60 +260,31 @@ def learning(args):
             else:
                 noises = np.random.randn(args.n_trajs, env.max_steps, env.M)
             data = sampler.sample(policy, noises) # mp
-            #data = [rollout(env, policy, noises[0])] # debug
             for states, actions, rewards in data: 
-                grad.append(grad_fn(states, actions, rewards, K))
-                #bp_grad = policy_gradient(states, actions, rewards, policy) # debug, works even worse
-                #print(np.abs(grad[-1] - bp_grad).max())
-                #print(bp_grad - grad[-1])
-                pg_loss.append(variance_reduced_pg_loss(states, actions, rewards, policy))
+                loss.append(loss_fn(states, actions, rewards, policy))
                 returns.append(rewards.sum())
                 if len(states) != args.H: 
                     out_set.add(name)
-            # calculate the torch gradient
             optim.zero_grad()
-            pg_loss = -torch.mean(torch.stack(pg_loss))
-            pg_loss.backward()
-            ## end of calculation
-            grad = np.mean(grad, axis=0)
-            #grad_norm = np.linalg.norm(grad) #mse(grad, env.expected_policy_gradient(K, Sigma_a))
-            #grad_error = mse(grad, env.expected_policy_gradient(K, Sigma_a))
-            #grad_norms.append(grad_norm)
-            #grad_errors.append(grad_error)
-            #print((policy.mean.weight.grad.detach().cpu().numpy() + grad))
-            #exit() # debug 
-            #K += lr / np.maximum(1.0, np.linalg.norm(grad)) * grad # constant norm of gradient
-            #K += args.lr / (i+1) * grad # decreasing learning rate!
-            #K += args.lr * grad # constant learning rate
+            loss = -torch.mean(torch.stack(loss))
+            loss.backward()
             optim.step()
-            #diff = np.abs(K - policy.mean.weight.data.detach().cpu().numpy()).max()
-            #print(np.linalg.norm(K), np.linalg.norm(policy.mean.weight.data.detach().cpu().numpy()))
-            #exit()
-            #### optim.step()!!!
             all_returns.append(np.mean(returns))
-            #prog.set_postfix(ret=all_returns[-1], grad_norm=grad_norm, grad_err=grad_error)
             prog.set_postfix(ret=all_returns[-1])
-        return np.asarray(all_returns), np.asarray(grad_errors), np.asarray(grad_norms)
+        return np.asarray(all_returns)
     results = dict(
-        #mc=train('mc', init_K, variance_reduced_grad),
-        #rqmc=train('rqmc', init_K, variance_reduced_grad, use_rqmc=True),
-        mc=train('mc', init_K, variance_reduced_grad),
-        rqmc=train('rqmc', init_K, variance_reduced_grad, use_rqmc=True),
-        #full=train('full', init_K, full_grad),        
-        optimal=tuple(map(lambda x: x.repeat(args.n_iters), train('optimal', env.optimal_controller(), no_grad, n_iters=1))),
+        mc=train('mc', variance_reduced_loss, init_policy),
+        rqmc=train('rqmc', variance_reduced_loss, init_policy, use_rqmc=True),
+        #full=train('full', init_K, full_grad), # this is only available for linear policy
+        optimal=train('optimal', no_loss, get_policy(argparse.Namespace(init_policy='optimal'), env), n_iters=1).repeat(args.n_iters),
     )
     if args.show_fig or args.save_fig is not None:
         valid_results = {k: v for k, v in results.items() if k not in out_set}
-        fig, axs = plt.subplots(ncols=3)
-        costs = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs[0])), 'cost': -rs[0]}) for name, rs in valid_results.items()])  
-        grad_errors = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs[1])), 'grad_error': rs[1]}) for name, rs in valid_results.items()]) 
-        grad_norms = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs[2])), 'grad_norm': rs[2]}) for name, rs in valid_results.items()]) 
-        cost_plot = sns.lineplot(x='x', y='cost', hue='name', data=costs, ax=axs[0])
-        grad_error_plot = sns.lineplot(x='x', y='grad_error', hue='name', data=grad_errors, ax=axs[1]) 
-        grad_norm_plot = sns.lineplot(x='x', y='grad_norm', hue='name', data=grad_norms, ax=axs[2])
+        costs = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs)), 'cost': -rs}) for name, rs in valid_results.items()])  
+        plot = sns.lineplot(x='x', y='cost', hue='name', data=costs)
         plt.yscale('log')
         if args.save_fig:
-            fig.savefig(args.save_fig)
+            plt.savefig(args.save_fig)
         if args.show_fig:
             plt.show()
     info = {**vars(args), 'out': out_set}
