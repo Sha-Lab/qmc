@@ -64,7 +64,8 @@ def search_network(touch: int=1, shuffle: int=0):
     kwargs = {
         '--task': 'learn',
         '--n_iters': 300,
-        '--n_seeds': 50,
+        '--n_seeds': 10,
+        '--max_seed': 30,
         '--mode': 'collect',
         '--init_policy': 'mlp',
         '--n_workers': 8,
