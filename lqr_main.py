@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from torch import nn
 from tqdm import tqdm, trange
 from ipdb import slaunch_ipdb_on_exception
+from pathlib import Path
 
 from envs import *
 from models import GaussianPolicy, get_mlp
@@ -21,6 +22,7 @@ from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 # TODO: 
 # check torch's multiprocessing, it might cost problems for sampler
 # make vectorized sampler to support gpu samping (multiprocessing with one gpu is not efficient)
+# how to quickly cut unpromising configuration?
 
 def parse_args(args):
     parser = argparse.ArgumentParser()
@@ -44,7 +46,7 @@ def parse_args(args):
     parser.add_argument('--save_fig', type=str, default=None)
     parser.add_argument('--mode', choices=['single', 'over', 'collect'], default='single')
     parser.add_argument('--n_seeds', type=int, default=200)
-    parser.add_argument('--max_seed', type=int, default=200)
+    parser.add_argument('--max_seed', type=int, default=100)
     parser.add_argument('--n_workers', type=int, default=1)
     parser.add_argument('--save_fn', type=str, default=None)
     return parser.parse_args(args)
@@ -318,6 +320,8 @@ def collect_seeds(save_fn, sample_f, sample_args, success_f, n_seeds=50, max_see
             print('fail seed, discarded')
         results.append(result)
         if n_success == n_seeds: break
+    save_fn = Path(save_fn) 
+    save_fn.parent.mkdir(parents=True, exist_ok=True) 
     with open(save_fn, 'wb') as f:
         dill.dump(results, f)
 
