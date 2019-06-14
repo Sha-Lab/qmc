@@ -19,15 +19,19 @@ from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
 # TODO: 
+# check infinite horizon value estimation in MDP
+# value estimation with critic
+# run on general environment (zerobaseline, then actor critic)
+# read LQR paper to learn the proof
 # check torch's multiprocessing, it might cost problems for sampler
 
 def parse_args(args):
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--task', 
-        choices=['cost', 'grad', 'learn'], 
+        choices=['cost', 'grad', 'learn', 'inf'], 
         default='learn')
-    parser.add_argument('--env', choices=['custom', 'WIP', 'IP'], default='custom')
+    parser.add_argument('--env', choices=['lqr', 'WIP', 'IP', 'mdp'], default='lqr')
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
     parser.add_argument('--init_scale', type=float, default=3.0)
     parser.add_argument('--PQ_kappa', type=float, default=3.0)
@@ -49,7 +53,7 @@ def parse_args(args):
     return parser.parse_args(args)
 
 def get_env(args):
-    if args.env == 'custom':
+    if args.env == 'lqr':
         env = LQR(
             N=args.xu_dim[0],
             M=args.xu_dim[1],
@@ -75,6 +79,20 @@ def get_env(args):
             max_steps=args.H,
             Sigma_s_scale=args.noise,
         )
+    elif args.env == 'mdp':
+        # 3 states, 2 actions
+        transition = np.array([
+            [[0.1, 0.9, 0.0], [0.0, 1.0, 0.0]],
+            [[0.0, 0.2, 0.8], [0.5, 0.0, 0.5]],
+            [[0.5, 0.0, 0.5], [0.0, 1.0, 0.0]],
+        ])
+        reward = np.array([
+            [0.0, 0.5],
+            [1.0, -1.0],
+            [0.5, 0.0],
+        ])
+        init_dist = np.array([1.0, 0.0, 0.0])
+        env = MDP(transition, reward, init_dist)
     else:
         raise Exception('unsupported lqr env')
     return env
