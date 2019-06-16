@@ -33,28 +33,28 @@ class GaussianPolicy(Policy):
         state_dim,
         action_dim,
         mean_network,
-        learn_std=False,
+        learn_std=True,
     ):
         super().__init__()
         self.mean = mean_network
         self.std = torch.zeros(action_dim)
         if learn_std: self.std = nn.Parameter(self.std)
+        self.learn_std = learn_std
         self.to(Config.DEVICE)
 
     def distribution(self, obs):
         obs = tensor(obs)
-        mean = self.mean(obs)
-        dist = torch.distributions.Normal(mean, tensor(torch.ones_like(self.std)))
-        #mean = torch.tanh(self.mean(obs))
-        #dist = torch.distributions.Normal(mean, F.softplus(self.std))
-        #log_prob = dist.log_prob(action).sum(-1).unsqueeze(-1)
+        if self.learn_std:
+            dist = torch.distributions.Normal(torch.tanh(self.mean(obs)), F.softplus(self.std))
+        else:
+            dist = torch.distributions.Normal(self.mean(obs), self.std)
         return dist 
 
     def forward(self, obs, noise):
         #:: there is an issue with gpu of multiprocessing, unless you want to have one GPU each process, it is not worth it.
         obs = tensor(obs)
-        #mean = torch.tanh(self.mean(obs)) # bounded action!!!
-        mean = self.mean(obs)
-        #action = mean + tensor(noise) * F.softplus(self.std)
-        action = mean + tensor(noise)
+        if self.learn_std:
+            action = torch.tanh(self.mean(obs)) + tensor(noise) * F.softplus(self.std)
+        else:
+            action = self.mean(obs) + tensor(noise)
         return action.cpu().detach().numpy()
