@@ -53,7 +53,7 @@ def search_learn(touch: int=1, shuffle: int=0):
     generate_args('exps/search_learn_{}'.format(kwargs['--env']), args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
 
 @cmd()
-def search_network(touch: int=1, shuffle: int=0):
+def search_network_std(touch: int=1, shuffle: int=0):
     variants = {
         '--n_trajs': [60, 100, 150, 200, 300],
         '-lr': [0.0001, 0.0005, 0.001],
@@ -73,7 +73,7 @@ def search_network(touch: int=1, shuffle: int=0):
     def post_variant(variant):
         variant['--save_fn'] = 'data/search_network/{}-{}-{}-{}'.format(*[variant[k] for k in ['--n_trajs', '-lr', '-H', '--init_scale']])
         return variant
-    generate_args('exps/search_network', args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
+    generate_args('exps/search_network_std', args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
 
 
 if __name__ == "__main__":

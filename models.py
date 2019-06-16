@@ -31,7 +31,7 @@ class GaussianPolicy(Policy):
         state_dim,
         action_dim,
         mean_network,
-        learn_std=False,
+        learn_std=True,
     ):
         super().__init__()
         self.mean = mean_network
@@ -51,8 +51,8 @@ class GaussianPolicy(Policy):
     def forward(self, obs, noise):
         #:: there is an issue with gpu of multiprocessing, unless you want to have one GPU each process, it is not worth it.
         obs = tensor(obs)
-        #mean = torch.tanh(self.mean(obs)) # bounded action!!!
-        mean = self.mean(obs)
-        #action = mean + tensor(noise) * F.softplus(self.std)
-        action = mean + tensor(noise)
+        #mean = self.mean(obs)
+        #action = mean + tensor(noise)
+        mean = torch.tanh(self.mean(obs)) # bounded action!!!
+        action = mean + tensor(noise) * F.softplus(self.std)
         return action.cpu().detach().numpy()
