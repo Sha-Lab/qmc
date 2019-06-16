@@ -42,10 +42,8 @@ class GaussianPolicy(Policy):
     def distribution(self, obs):
         obs = tensor(obs)
         mean = self.mean(obs)
-        dist = torch.distributions.Normal(mean, tensor(torch.ones_like(self.std)))
-        #mean = torch.tanh(self.mean(obs))
-        #dist = torch.distributions.Normal(mean, F.softplus(self.std))
-        #log_prob = dist.log_prob(action).sum(-1).unsqueeze(-1)
+        #dist = torch.distributions.Normal(mean, tensor(torch.ones_like(self.std)))
+        dist = torch.distributions.Normal(torch.tanh(mean), F.softplus(self.std))
         return dist 
 
     def forward(self, obs, noise):
@@ -53,6 +51,6 @@ class GaussianPolicy(Policy):
         obs = tensor(obs)
         #mean = self.mean(obs)
         #action = mean + tensor(noise)
-        mean = torch.tanh(self.mean(obs)) # bounded action!!!
+        mean = torch.tanh(self.mean(obs)) # bounded action!!!, but this will lead to NaN...
         action = mean + tensor(noise) * F.softplus(self.std)
         return action.cpu().detach().numpy()
