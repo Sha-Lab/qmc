@@ -203,6 +203,14 @@ class Sampler:
         self.pool.close()
         self.pool.join()
 
+class SeqRunner:
+    def __init__(self, env):
+        self.env = env
+        env.seed(0)
+
+    def sample(self, policy, noises):
+        return [rollout(self.env, policy, noise) for noise in noises]
+
 def cumulative_return(rewards, discount):
     returns = []
     cur_return = 0.0

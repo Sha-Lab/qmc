@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from torch import nn
 from utils import Config, tensor
 
-def get_mlp(hidden_sizes, gate=None, gate_output=False):
+def get_mlp(hidden_sizes, gate=None, output_gate=None):
     layers = []
     input_dim = hidden_sizes[0]
     for output_dim in hidden_sizes[1:]:
@@ -15,7 +15,9 @@ def get_mlp(hidden_sizes, gate=None, gate_output=False):
         layers.append(layer)
         if gate: layers.append(gate()) 
         input_dim = output_dim
-    if gate is not None and not gate_output: layers = layers[:-1]
+    layers = layers[:-1]
+    if output_gate is not None:
+        layers.append(output_gate())
     return nn.Sequential(*layers)
 
 class Policy(nn.Module):

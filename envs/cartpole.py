@@ -25,6 +25,7 @@ class CartPoleContinuousEnv(gym.Env):
         self.polemass_length = (self.masspole * self.length)
         self.max_force = 20.0
         self.tau = 0.02  # seconds between state updates
+        self.max_steps = 100
 
         # Angle at which to fail the episode
         self.theta_threshold_radians = 12 * 2 * np.pi / 360
@@ -40,15 +41,16 @@ class CartPoleContinuousEnv(gym.Env):
         self.action_space = spaces.Box(low=-self.max_force, high=self.max_force, shape=(1,))
         self.observation_space = spaces.Box(-high, high)
 
-        self._seed()
+        self.seed()
         self.viewer = None
         self.state = None
 
         self.steps_beyond_done = None
 
-    def _seed(self, seed=None):
-        self.np_random, seed = seeding.np_random(seed)
-        return [seed]
+    def seed(self, seed=None):
+        print(seed) # debug
+        #self.np_random, seed = seeding.np_random(seed)
+        #return [seed]
 
     def _state_eq(self, st, u):
         x, x_dot, theta, theta_dot = st
@@ -64,7 +66,7 @@ class CartPoleContinuousEnv(gym.Env):
         theta_dot = theta_dot + self.tau * thetaacc
         return np.array([x, x_dot, theta, theta_dot])
 
-    def _step(self, action):
+    def step(self, action):
         assert self.action_space.contains(action), "%r (%s) invalid"%(action, type(action))
         state = self.state
         self.state = self._state_eq(state, action) 
@@ -74,27 +76,15 @@ class CartPoleContinuousEnv(gym.Env):
                 or theta < -self.theta_threshold_radians \
                 or theta > self.theta_threshold_radians
         done = bool(done)
-
-        if not done:
-            reward = 1.0
-        elif self.steps_beyond_done is None:
-            # Pole just fell!
-            self.steps_beyond_done = 0
-            reward = 1.0
-        else:
-            if self.steps_beyond_done == 0:
-                logger.warning("You are calling 'step()' even though this environment has already returned done = True. You should always call 'reset()' once you receive 'done = True' -- any further steps are undefined behavior.")
-            self.steps_beyond_done += 1
-            reward = 0.0
-
+        reward = 10.0 - (x ** 2).sum() - (1e-5 * (action ** 2).sum())
         return self.state, reward, done, {}
 
-    def _reset(self):
+    def reset(self):
         self.state = np.array([0.0, 0.0, 0.5 * np.pi, 0.0])
         self.steps_beyond_done = None
         return np.array(self.state)
 
-    def _render(self, mode='human', close=False):
+    def render(self, mode='human', close=False):
         if close:
             if self.viewer is not None:
                 self.viewer.close()
