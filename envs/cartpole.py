@@ -1,16 +1,16 @@
 """
-Classic cart-pole system with continuous action implemented by Rich Sutton et al.
+Classic cart-pole system implemented by Rich Sutton et al.
 Copied from http://incompleteideas.net/sutton/book/code/pole.c
 permalink: https://perma.cc/C9ZM-652R
 """
 
+import math
 import gym
-import numpy as np
-from gym import spaces
+from gym import spaces, logger
 from gym.utils import seeding
+import numpy as np
 
-
-class CartPoleContinuousEnv(gym.Env):
+class CartPoleContinuousEnv(gym.Env):    
     metadata = {
         'render.modes': ['human', 'rgb_array'],
         'video.frames_per_second' : 50
@@ -23,12 +23,12 @@ class CartPoleContinuousEnv(gym.Env):
         self.total_mass = (self.masspole + self.masscart)
         self.length = 0.5 # actually half the pole's length
         self.polemass_length = (self.masspole * self.length)
-        self.max_force = 20.0
+        self.force_mag = 10.0
         self.tau = 0.02  # seconds between state updates
-        self.max_steps = 100
+        self.kinematics_integrator = 'euler'
 
         # Angle at which to fail the episode
-        self.theta_threshold_radians = 12 * 2 * np.pi / 360
+        self.theta_threshold_radians = 12 * 2 * math.pi / 360
         self.x_threshold = 2.4
 
         # Angle limit set to 2 * theta_threshold_radians so failing observation is still within bounds
@@ -38,8 +38,9 @@ class CartPoleContinuousEnv(gym.Env):
             self.theta_threshold_radians * 2,
             np.finfo(np.float32).max])
 
-        self.action_space = spaces.Box(low=-self.max_force, high=self.max_force, shape=(1,))
-        self.observation_space = spaces.Box(-high, high)
+        #self.action_space = spaces.Discrete(2)
+        self.action_space = spaces.Box(np.array([-1]), np.array([1]), dtype=np.float32)
+        self.observation_space = spaces.Box(-high, high, dtype=np.float32)
 
         self.seed()
         self.viewer = None
@@ -48,49 +49,57 @@ class CartPoleContinuousEnv(gym.Env):
         self.steps_beyond_done = None
 
     def seed(self, seed=None):
-        print(seed) # debug
-        #self.np_random, seed = seeding.np_random(seed)
-        #return [seed]
+        self.np_random, seed = seeding.np_random(seed)
+        return [seed]
 
-    def _state_eq(self, st, u):
-        x, x_dot, theta, theta_dot = st
-        force = u[0]
-        costheta = np.cos(theta)
-        sintheta = np.sin(theta)
+    def step(self, action):
+        #assert self.action_space.contains(action), "%r (%s) invalid"%(action, type(action))
+        state = self.state
+        x, x_dot, theta, theta_dot = state
+        #force = self.force_mag if action==1 else -self.force_mag
+        force = action[0]
+        costheta = math.cos(theta)
+        sintheta = math.sin(theta)
         temp = (force + self.polemass_length * theta_dot * theta_dot * sintheta) / self.total_mass
         thetaacc = (self.gravity * sintheta - costheta* temp) / (self.length * (4.0/3.0 - self.masspole * costheta * costheta / self.total_mass))
         xacc  = temp - self.polemass_length * thetaacc * costheta / self.total_mass
-        x  = x + self.tau * x_dot
-        x_dot = x_dot + self.tau * xacc
-        theta = theta + self.tau * theta_dot
-        theta_dot = theta_dot + self.tau * thetaacc
-        return np.array([x, x_dot, theta, theta_dot])
-
-    def step(self, action):
-        assert self.action_space.contains(action), "%r (%s) invalid"%(action, type(action))
-        state = self.state
-        self.state = self._state_eq(state, action) 
-        x, x_dot, theta, theta_dot = self.state
+        if self.kinematics_integrator == 'euler':
+            x  = x + self.tau * x_dot
+            x_dot = x_dot + self.tau * xacc
+            theta = theta + self.tau * theta_dot
+            theta_dot = theta_dot + self.tau * thetaacc
+        else: # semi-implicit euler
+            x_dot = x_dot + self.tau * xacc
+            x  = x + self.tau * x_dot
+            theta_dot = theta_dot + self.tau * thetaacc
+            theta = theta + self.tau * theta_dot
+        self.state = (x,x_dot,theta,theta_dot)
         done =  x < -self.x_threshold \
                 or x > self.x_threshold \
                 or theta < -self.theta_threshold_radians \
                 or theta > self.theta_threshold_radians
         done = bool(done)
-        reward = 10.0 - (x ** 2).sum() - (1e-5 * (action ** 2).sum())
-        return self.state, reward, done, {}
+
+        if not done:
+            reward = 1.0
+        elif self.steps_beyond_done is None:
+            # Pole just fell!
+            self.steps_beyond_done = 0
+            reward = 1.0
+        else:
+            if self.steps_beyond_done == 0:
+                logger.warn("You are calling 'step()' even though this environment has already returned done = True. You should always call 'reset()' once you receive 'done = True' -- any further steps are undefined behavior.")
+            self.steps_beyond_done += 1
+            reward = 0.0
+
+        return np.array(self.state), reward, done, {}
 
     def reset(self):
-        self.state = np.array([0.0, 0.0, 0.5 * np.pi, 0.0])
+        self.state = self.np_random.uniform(low=-0.05, high=0.05, size=(4,))
         self.steps_beyond_done = None
         return np.array(self.state)
 
-    def render(self, mode='human', close=False):
-        if close:
-            if self.viewer is not None:
-                self.viewer.close()
-                self.viewer = None
-            return
-
+    def render(self, mode='human'):
         screen_width = 600
         screen_height = 400
 
@@ -98,7 +107,7 @@ class CartPoleContinuousEnv(gym.Env):
         scale = screen_width/world_width
         carty = 100 # TOP OF CART
         polewidth = 10.0
-        polelen = scale * 1.0
+        polelen = scale * (2 * self.length)
         cartwidth = 50.0
         cartheight = 30.0
 
@@ -127,7 +136,14 @@ class CartPoleContinuousEnv(gym.Env):
             self.track.set_color(0,0,0)
             self.viewer.add_geom(self.track)
 
+            self._pole_geom = pole
+
         if self.state is None: return None
+
+        # Edit the pole polygon vertex
+        pole = self._pole_geom
+        l,r,t,b = -polewidth/2,polewidth/2,polelen-polewidth/2,-polewidth/2
+        pole.v = [(l,b), (l,t), (r,t), (r,b)]
 
         x = self.state
         cartx = x[0]*scale+screen_width/2.0 # MIDDLE OF CART
@@ -135,3 +151,8 @@ class CartPoleContinuousEnv(gym.Env):
         self.poletrans.set_rotation(-x[2])
 
         return self.viewer.render(return_rgb_array = mode=='rgb_array')
+
+    def close(self):
+        if self.viewer:
+            self.viewer.close()
+            self.viewer = None

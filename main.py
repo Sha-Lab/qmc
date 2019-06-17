@@ -293,13 +293,18 @@ def learning(args):
             else:
                 noises = np.random.randn(args.n_trajs, env.max_steps, M)
             data = sampler.sample(policy, noises) # mp
-            for states, actions, rewards in data: 
+            for states, actions, rewards in data:  
                 loss.append(loss_fn(states, actions, rewards, policy))
                 returns.append(rewards.sum())
                 if len(states) != args.H and args.env in LQR_ENVS: 
                     out_set.add(name)
             optim.zero_grad()
             loss = -torch.mean(torch.stack(loss))
+            ### another way to calculate loss ###
+            #states, actions, rewards = zip(*data)
+            #states, actions, rewards = sum(states, []), sum(actions, []), sum(rewards, [])
+            #loss = -torch.mean(loss_fn(states, actions, rewards, ))
+            ### end of another way ###
             loss.backward()
             optim.step()
             all_returns.append(np.mean(returns))
