@@ -148,14 +148,14 @@ def set_seed(seed):
             torch.cuda.manual_seed(seed)
 
 # environment might has different random seed
-def rollout(env, policy, noises):
+def rollout(env, policy, noises, horizon=np.inf):
     states = []
     actions = []
     rewards = []
     done = False
     s = env.reset()
     cur_step = 0
-    while not done:
+    while cur_step < horizon and not done:
         #a = K.dot(s) + noises[cur_step]
         a = policy(s, noises[cur_step])
         next_s, r, done, _ = env.step(a)
@@ -164,10 +164,6 @@ def rollout(env, policy, noises):
         rewards.append(r)
         s = next_s
         cur_step += 1
-    #print(states) # debug
-    #print(actions)
-    #print(rewards)
-    #exit()
     return np.asarray(states), np.asarray(actions), np.asarray(rewards)
   
 def mse(a, b):
@@ -183,9 +179,9 @@ def sample_init(env, init_seeds):
     seed = init_seeds.get()
     env.seed(seed)
 
-def _rollout(K, noises):
+def _rollout(policy, noises):
     global sample_env
-    return rollout(sample_env, K, noises)
+    return rollout(sample_env, policy, noises)
 
 # initializer take init_queue as input
 # This is just for rollout
