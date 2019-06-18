@@ -3,6 +3,7 @@ import argparse
 import numpy as np
 from torch import nn
 from ipdb import launch_ipdb_on_exception
+from pathlib import Path
 
 from envs import *
 from models import get_mlp, GaussianPolicy
@@ -74,7 +75,7 @@ def main(args=None):
         print('Average Return:', iter_returns[-1])
     if args.save_fn:
         Path(args.save_fn).parent.mkdir(parents=True, exist_ok=True)
-        with open(args.save_fn) as f:
+        with open(args.save_fn, 'w') as f:
             for ret in iter_returns:
                 f.write('{}\n'.format(ret))
 
