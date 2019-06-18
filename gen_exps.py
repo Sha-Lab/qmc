@@ -71,7 +71,7 @@ def search_network_std(touch: int=1, shuffle: int=0):
         '--n_workers': 8,
     }
     def post_variant(variant):
-        variant['--save_fn'] = 'data/search_network/{}-{}-{}-{}'.format(*[variant[k] for k in ['--n_trajs', '-lr', '-H', '--init_scale']])
+        variant['--save_fn'] = 'data/search_network_std/{}-{}-{}-{}'.format(*[variant[k] for k in ['--n_trajs', '-lr', '-H', '--init_scale']])
         return variant
     generate_args('exps/search_network_std', args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
 
