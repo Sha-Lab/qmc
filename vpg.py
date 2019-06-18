@@ -13,7 +13,7 @@ from tqdm import tqdm, trange
 
 from envs import *
 from models import get_mlp, GaussianPolicy
-from utils import tensor, set_seed
+from utils import tensor, set_seed, Sampler, SeqRunner
 from rqmc_distributions import Normal_RQMC
 
 
@@ -28,6 +28,7 @@ def parse_args(args):
     parser.add_argument('--save_fn', type=str, default=None)
     parser.add_argument('--show_fig', action='store_true')
     parser.add_argument('--save_fig', type=str, default=None)
+    parser.add_argument('--n_workers', type=int, default=8)
     parser.add_argument('--seed', type=int, default=0)
     return parser.parse_args(args)
 
@@ -40,6 +41,7 @@ def train(args, name, env, init_policy, use_rqmc=False):
     state_dim, action_dim = env.observation_space.shape[0], env.action_space.shape[0] 
     policy = copy.deepcopy(init_policy)
     optim = torch.optim.SGD(policy.parameters(), args.lr)
+    sampler = Sampler(env, args.n_workers) # mp
     prog = trange(args.n_iters, desc=name)
     for _ in prog:
         if use_rqmc:
@@ -49,20 +51,8 @@ def train(args, name, env, init_policy, use_rqmc=False):
         else:
             noises = np.random.randn(args.n_trajs, args.horizon, action_dim)
         paths = []
-        for n in range(args.n_trajs):
-            observations = []
-            actions = []
-            rewards = []
-            observation = env.reset()
-            for t in range(args.horizon):
-                action = policy(observation, noises[n][t])
-                next_observation, reward, terminal, _ = env.step(action)
-                observations.append(observation)
-                actions.append(action)
-                rewards.append(reward)
-                observation = next_observation
-                if terminal:
-                    break
+        data = sampler.sample(policy, noises, horizon=args.horizon)
+        for observations, actions, rewards in data:
             returns = []
             return_so_far = 0
             for t in range(len(rewards) - 1, -1, -1):

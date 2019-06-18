@@ -179,9 +179,9 @@ def sample_init(env, init_seeds):
     seed = init_seeds.get()
     env.seed(seed)
 
-def _rollout(policy, noises):
+def _rollout(policy, noises, horizon):
     global sample_env
-    return rollout(sample_env, policy, noises)
+    return rollout(sample_env, policy, noises, horizon)
 
 # initializer take init_queue as input
 # This is just for rollout
@@ -189,11 +189,11 @@ class Sampler:
     def __init__(self, env, n_processes=0):
         if n_processes <= 0: n_processes = mp.cpu_count()
         init_seeds = mp.Queue()
-        for seed in np.random.randint(100000000, size=n_processes): init_seeds.put(seed) # initseeds
+        for seed in np.random.randint(100000000, size=n_processes): init_seeds.put(int(seed)) # initseeds
         self.pool = mp.Pool(n_processes, sample_init, (env, init_seeds))
         
-    def sample(self, policy, noises): # might cost problems
-        return self.pool.starmap_async(_rollout, [(policy, noise) for noise in noises]).get()
+    def sample(self, policy, noises, horizon=np.inf): # might cost problems
+        return self.pool.starmap_async(_rollout, [(policy, noise, horizon) for noise in noises]).get()
 
     def __del__(self):
         self.pool.close()
