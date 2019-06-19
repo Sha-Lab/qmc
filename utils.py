@@ -204,8 +204,8 @@ class SeqRunner:
         self.env = env
         env.seed(0)
 
-    def sample(self, policy, noises):
-        return [rollout(self.env, policy, noise) for noise in noises]
+    def sample(self, policy, noises, horizon=np.inf):
+        return [rollout(self.env, policy, noise, horizon) for noise in noises]
 
 def cumulative_return(rewards, discount):
     returns = []
