@@ -76,7 +76,6 @@ def train(args, name, env, init_policy, use_rqmc=False):
         loss.backward()
         optim.step()
         iter_returns.append(np.mean([sum(p["rewards"]) for p in paths]))
-        print(np.mean([sum(p["rewards"]) for p in paths]))
         prog.set_postfix(ret=iter_returns[-1])
     return iter_returns
 

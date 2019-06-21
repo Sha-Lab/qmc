@@ -240,7 +240,7 @@ class VecSampler:
     def __init__(self, env, n_envs=1):
         envs = [copy.deepcopy(env) for _ in range(n_envs)]
         for env, seed in zip(envs, np.random.randint(Config.SEED_RANGE, size=len(envs))):
-            env.seed(seed)
+            env.seed(int(seed))
         self.env = VecEnv(envs)
         self.n_envs = n_envs
         

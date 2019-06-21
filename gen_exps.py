@@ -82,7 +82,7 @@ def search_vpg():
         '--hidden_sizes': [(8,), (16,), (16, 8), (16, 16), (32, 16), (32 ,32)],
     }
     args = []
-    kwargs = {}
+    kwargs = {'--n_workers': 250}
     def post_variant(variant):
         variant['--save_fn'] = 'data/search_vpg/{}-{}'.format(variant['--n_trajs'], '-'.join([str(x) for x in variant['--hidden_sizes']]))
         return variant
