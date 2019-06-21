@@ -41,8 +41,7 @@ def train(args, name, env, init_policy, use_rqmc=False):
     state_dim, action_dim = env.observation_space.shape[0], env.action_space.shape[0] 
     policy = copy.deepcopy(init_policy)
     optim = torch.optim.SGD(policy.parameters(), args.lr)
-    if False: # debug, always choose VecSampler
-    #if Config.DEVICE.type == 'cpu': 
+    if Config.DEVICE.type == 'cpu': 
         sampler = MPSampler(env, args.n_workers) # mp
     else:
         sampler = VecSampler(env, args.n_workers)
