@@ -13,7 +13,7 @@ from tqdm import tqdm, trange
 
 from envs import *
 from models import get_mlp, GaussianPolicy
-from utils import tensor, set_seed, Sampler, SeqRunner, Config, select_device
+from utils import tensor, set_seed, MPSampler, VecSampler, Config, select_device
 from rqmc_distributions import Normal_RQMC
 
 
@@ -41,10 +41,11 @@ def train(args, name, env, init_policy, use_rqmc=False):
     state_dim, action_dim = env.observation_space.shape[0], env.action_space.shape[0] 
     policy = copy.deepcopy(init_policy)
     optim = torch.optim.SGD(policy.parameters(), args.lr)
-    if Config.DEVICE.type == 'cpu': 
-        sampler = Sampler(env, args.n_workers) # mp
+    if False: # debug, always choose VecSampler
+    #if Config.DEVICE.type == 'cpu': 
+        sampler = MPSampler(env, args.n_workers) # mp
     else:
-        sampler = SeqRunner(env)
+        sampler = VecSampler(env)
     prog = trange(args.n_iters, desc=name)
     for _ in prog:
         if use_rqmc:
