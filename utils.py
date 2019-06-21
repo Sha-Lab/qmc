@@ -1,4 +1,6 @@
+import gym
 import sys
+import copy
 import numpy as np
 import random
 import torch
@@ -148,14 +150,14 @@ def set_seed(seed):
             torch.cuda.manual_seed(seed)
 
 # environment might has different random seed
-def rollout(env, policy, noises):
+def rollout(env, policy, noises, horizon=np.inf):
     states = []
     actions = []
     rewards = []
     done = False
     s = env.reset()
     cur_step = 0
-    while not done:
+    while cur_step < horizon and not done:
         #a = K.dot(s) + noises[cur_step]
         a = policy(s, noises[cur_step])
         next_s, r, done, _ = env.step(a)
@@ -164,10 +166,6 @@ def rollout(env, policy, noises):
         rewards.append(r)
         s = next_s
         cur_step += 1
-    #print(states) # debug
-    #print(actions)
-    #print(rewards)
-    #exit()
     return np.asarray(states), np.asarray(actions), np.asarray(rewards)
   
 def mse(a, b):
@@ -183,25 +181,106 @@ def sample_init(env, init_seeds):
     seed = init_seeds.get()
     env.seed(seed)
 
-def _rollout(K, noises):
+def _rollout(policy, noises, horizon):
     global sample_env
-    return rollout(sample_env, K, noises)
+    return rollout(sample_env, policy, noises, horizon)
 
 # initializer take init_queue as input
 # This is just for rollout
-class Sampler:
+class MPSampler:
     def __init__(self, env, n_processes=0):
         if n_processes <= 0: n_processes = mp.cpu_count()
         init_seeds = mp.Queue()
-        for seed in np.random.randint(100000000, size=n_processes): init_seeds.put(seed) # initseeds
+        for seed in np.random.randint(100000000, size=n_processes): init_seeds.put(int(seed)) # initseeds
         self.pool = mp.Pool(n_processes, sample_init, (env, init_seeds))
         
-    def sample(self, policy, noises): # might cost problems
-        return self.pool.starmap_async(_rollout, [(policy, noise) for noise in noises]).get()
+    def sample(self, policy, noises, horizon=np.inf): # might cost problems
+        return self.pool.starmap_async(_rollout, [(policy, noise, horizon) for noise in noises]).get()
 
     def __del__(self):
         self.pool.close()
         self.pool.join()
+
+class HorizonWrapper(gym.Wrapper):
+    def __init__(self, env, horizon):
+        super().__init__(env)
+        self.horizon = horizon
+
+    def reset(self):
+        self.t = 0
+        return self.env.reset()
+
+    def step(self, action):
+        next_state, reward, done, info = self.env.step(action)
+        self.t += 1
+        if self.t == self.horizon: done = True
+        return next_state, reward, done, info
+
+class VecEnv:
+    def __init__(self, envs):
+        self.envs = envs
+        self.n_envs = len(self.envs)
+
+    def step(self, actions):
+        data = []
+        for i in range(self.n_envs):
+            obs, rew, done, info = self.envs[i].step(actions[i])
+            if done:
+                obs = self.envs[i].reset()
+            data.append([obs, rew, done, info])
+        obs, rew, done, info = zip(*data)
+        return obs, np.asarray(rew), np.asarray(done), info
+
+    def reset(self):
+        return [env.reset() for env in self.envs]
+
+class DummpyEnv(gym.Env):
+    def reset(self):
+        return None
+
+    def step(self, action):
+        return None, 0.0, False, {}
+
+class VecSampler:
+    def __init__(self, env, n_envs=1):
+        self.env = VecEnv([copy.deepcopy(env) for _ in range(n_envs)])
+        self.n_envs = n_envs
+        
+    def sample(self, policy, noises, horizon=np.inf): # might cost problems
+        data = []
+        cur_rollout = [dict(states=[], actions=[], rewards=[]) for _ in range(self.n_envs)]
+        noise_indices = list([(i if i < len(noises) else -1) for i in range(self.n_envs)])
+        idx = self.n_envs
+        states = self.env.reset()
+        cur_t = [0 for _ in range(self.n_envs)]
+        while True:
+            actions = policy(states, noises[noise_indices, cur_t])
+            next_states, rewards, terminals, infos = self.env.step(actions)
+            for i, step in enumerate(zip(states, actions, rewards, terminals)):
+                state, action, reward, terminal = step
+                cur_rollout[i]['states'].append(state)
+                cur_rollout[i]['actions'].append(action)
+                cur_rollout[i]['rewards'].append(reward)
+                cur_t[i] += 1
+                if terminal or cur_t[i] == horizon:
+                    data.append([cur_rollout[i][k] for k in ['states', 'actions', 'rewards']])
+                    cur_rollout[i] = dict(states=[], actions=[], rewards=[])
+                    cur_t[i] = 0
+                    noise_indices[i] = idx if idx < len(noises) else -1
+                    ++idx
+                if len(data) == len(noises): break
+            if len(data) == len(noises): break
+            states = next_states
+        print(len(data))
+        return data
+
+class SeqRunner:
+    def __init__(self, env):
+        self.env = env
+        env.seed(0)
+
+    def sample(self, policy, noises, horizon=np.inf):
+        return [rollout(self.env, policy, noise, horizon) for noise in noises]
 
 def cumulative_return(rewards, discount):
     returns = []

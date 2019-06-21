@@ -75,6 +75,19 @@ def search_network_std(touch: int=1, shuffle: int=0):
         return variant
     generate_args('exps/search_network_std', args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
 
+@cmd()
+def search_vpg():
+    variants = {
+        '--n_trajs': [500, 1000, 1500, 2000],
+        '--hidden_sizes': [(8,), (16,), (16, 8), (16, 16), (32, 16), (32 ,32)],
+    }
+    args = []
+    kwargs = {}
+    def post_variant(variant):
+        variant['--save_fn'] = 'data/search_vpg/{}-{}'.format(variant['--n_trajs'], '-'.join([str(x) for x in variant['--hidden_sizes']]))
+        return variant
+    generate_args('exps/search_vpg', args, kwargs, variants, post_variant=post_variant, shuffle=True)
+
 
 if __name__ == "__main__":
     with launch_ipdb_on_exception():

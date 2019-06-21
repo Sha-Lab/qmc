@@ -15,11 +15,16 @@ from pathlib import Path
 
 from envs import *
 from models import GaussianPolicy, get_mlp
-from utils import set_seed, rollout, mse, cummean, Sampler, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss
+from utils import set_seed, rollout, mse, cummean, Sampler, SeqRunner, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
 # TODO: 
+# implement discount
+# check infinite horizon value estimation in MDP
+# value estimation with critic
+# run on general environment (zerobaseline, then actor critic)
+# read LQR paper to learn the proof
 # check torch's multiprocessing, it might cost problems for sampler
 # make vectorized sampler to support gpu samping (multiprocessing with one gpu is not efficient)
 # how to quickly cut unpromising configuration?
@@ -28,9 +33,9 @@ def parse_args(args):
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--task', 
-        choices=['cost', 'grad', 'learn'], 
+        choices=['cost', 'grad', 'learn', 'inf'], 
         default='learn')
-    parser.add_argument('--env', choices=['custom', 'WIP', 'IP'], default='custom')
+    parser.add_argument('--env', choices=['lqr', 'WIP', 'IP', 'mdp', 'cartpole'], default='lqr')
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
     parser.add_argument('--init_scale', type=float, default=3.0)
     parser.add_argument('--PQ_kappa', type=float, default=3.0)
@@ -40,7 +45,7 @@ def parse_args(args):
     parser.add_argument('--n_trajs', type=int, default=800, help='number of trajectories used')
     parser.add_argument('--n_iters', type=int, default=200, help='number of iterations of training')
     parser.add_argument('-lr', type=float, default=5e-5)
-    parser.add_argument('--init_policy', choices=['optimal', 'linear', 'linear_bias', 'mlp'], default='linear')
+    parser.add_argument('--init_policy', choices=['optimal', 'linear', 'linear_bias', 'mlp', 'mlp_tanh'], default='linear')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--show_fig', action='store_true')
     parser.add_argument('--save_fig', type=str, default=None)
@@ -51,8 +56,10 @@ def parse_args(args):
     parser.add_argument('--save_fn', type=str, default=None)
     return parser.parse_args(args)
 
+LQR_ENVS = ['lqr', 'WIP', 'IP']
+
 def get_env(args):
-    if args.env == 'custom':
+    if args.env == 'lqr':
         env = LQR(
             N=args.xu_dim[0],
             M=args.xu_dim[1],
@@ -78,28 +85,48 @@ def get_env(args):
             max_steps=args.H,
             Sigma_s_scale=args.noise,
         )
+    elif args.env == 'mdp':
+        # 3 states, 2 actions
+        transition = np.array([
+            [[0.1, 0.9, 0.0], [0.0, 1.0, 0.0]],
+            [[0.0, 0.2, 0.8], [0.5, 0.0, 0.5]],
+            [[0.5, 0.0, 0.5], [0.0, 1.0, 0.0]],
+        ])
+        reward = np.array([
+            [0.0, 0.5],
+            [1.0, -1.0],
+            [0.5, 0.0],
+        ])
+        init_dist = np.array([1.0, 0.0, 0.0])
+        env = MDP(transition, reward, init_dist)
+    elif args.env == 'cartpole':
+        env = CartPoleContinuousEnv()
     else:
         raise Exception('unsupported lqr env')
     return env
 
 def get_policy(args, env):    
+    N = env.observation_space.shape[0]
+    M = env.action_space.shape[0]
     if args.init_policy == 'optimal':
         K = env.optimal_controller()
         mean_network = nn.Linear(*K.shape[::-1], bias=False)
         mean_network.weight.data = tensor(K)
     elif args.init_policy == 'linear':
-        K = np.random.randn(env.M, env.N)
+        K = np.random.randn(M, N)
         mean_network = nn.Linear(*K.shape[::-1], bias=False)
         mean_network.weight.data = tensor(K)
     elif args.init_policy == 'linear_bias':
-        K = np.random.randn(env.M, env.N)
+        K = np.random.randn(M, N)
         mean_network = nn.Linear(*K.shape[::-1], bias=True)
         mean_network.weight.data = tensor(K)
     elif args.init_policy == 'mlp':
-        mean_network = get_mlp((env.N, 16, env.M), gate=nn.ReLU)
+        mean_network = get_mlp((N, 16, M), gate=nn.ReLU)
+    elif args.init_policy == 'mlp_tanh':
+        mean_network = get_mlp((N, 16, M), gate=nn.ReLU, output_gate=nn.Tanh)
     else:
         raise Exception('unsupported policy type')
-    return GaussianPolicy(env.N, env.M, mean_network)
+    return GaussianPolicy(N, M, mean_network)
 
 # error bar: https://stackoverflow.com/questions/12957582/plot-yerr-xerr-as-shaded-region-rather-than-error-bars
 #def compare_cost(horizon=100, num_trajs=1000, noise_scale=0.0, seed=0, save_dir=None, show_fig=False):
@@ -240,7 +267,8 @@ def compare_grad(args):
 def learning(args):
     set_seed(args.seed)
     env = get_env(args)
-    sampler = Sampler(env, args.n_workers) # mp
+    #sampler = Sampler(env, args.n_workers) # mp
+    sampler = SeqRunner(env) # sequential
     init_policy = get_policy(args, env)
     print(init_policy)
     out_set = set()
@@ -250,6 +278,8 @@ def learning(args):
         optim = torch.optim.SGD(policy.parameters(), args.lr)
         all_returns = []
         prog = trange(n_iters, desc=name)
+        N = env.observation_space.shape[0]
+        M = env.action_space.shape[0] 
         for _ in prog:
             if name in out_set or (name == 'full' and len(out_set) == 2): # fast skip
                 all_returns.append(np.nan)
@@ -257,19 +287,24 @@ def learning(args):
             returns = []
             loss = [] # policy gradient loss
             if use_rqmc:
-                loc = torch.zeros(env.max_steps * env.M)
-                scale = torch.ones(env.max_steps * env.M) 
-                noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy().reshape(args.n_trajs, env.max_steps, env.M)
+                loc = torch.zeros(env.max_steps * M)
+                scale = torch.ones(env.max_steps * M) 
+                noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy().reshape(args.n_trajs, env.max_steps, M)
             else:
-                noises = np.random.randn(args.n_trajs, env.max_steps, env.M)
+                noises = np.random.randn(args.n_trajs, env.max_steps, M)
             data = sampler.sample(policy, noises) # mp
-            for states, actions, rewards in data: 
+            for states, actions, rewards in data:  
                 loss.append(loss_fn(states, actions, rewards, policy))
                 returns.append(rewards.sum())
-                if len(states) != args.H: 
+                if len(states) != args.H and args.env in LQR_ENVS: 
                     out_set.add(name)
             optim.zero_grad()
             loss = -torch.mean(torch.stack(loss))
+            ### another way to calculate loss ###
+            #states, actions, rewards = zip(*data)
+            #states, actions, rewards = sum(states, []), sum(actions, []), sum(rewards, [])
+            #loss = -torch.mean(loss_fn(states, actions, rewards, ))
+            ### end of another way ###
             loss.backward()
             optim.step()
             all_returns.append(np.mean(returns))
@@ -279,8 +314,9 @@ def learning(args):
         mc=train('mc', variance_reduced_loss, init_policy),
         rqmc=train('rqmc', variance_reduced_loss, init_policy, use_rqmc=True),
         #full=train('full', init_K, full_grad), # this is only available for linear policy
-        optimal=train('optimal', no_loss, get_policy(argparse.Namespace(init_policy='optimal'), env), n_iters=1).repeat(args.n_iters),
     )
+    if args.env in LQR_ENVS:
+        results['optimal'] = train('optimal', no_loss, get_policy(argparse.Namespace(init_policy='optimal'), env), n_iters=1).repeat(args.n_iters)
     if args.show_fig or args.save_fig is not None:
         valid_results = {k: v for k, v in results.items() if k not in out_set}
         costs = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs)), 'cost': -rs}) for name, rs in valid_results.items()])  
