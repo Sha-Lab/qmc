@@ -13,7 +13,7 @@ from tqdm import tqdm, trange
 
 from envs import *
 from models import get_mlp, GaussianPolicy
-from utils import tensor, set_seed, MPSampler, VecSampler, Config, select_device
+from utils import tensor, set_seed, MPSampler, SeqRunner, VecSampler, Config, select_device, HorizonWrapper
 from rqmc_distributions import Normal_RQMC
 
 
@@ -45,7 +45,7 @@ def train(args, name, env, init_policy, use_rqmc=False):
     #if Config.DEVICE.type == 'cpu': 
         sampler = MPSampler(env, args.n_workers) # mp
     else:
-        sampler = VecSampler(env)
+        sampler = VecSampler(env, args.n_workers)
     prog = trange(args.n_iters, desc=name)
     for _ in prog:
         if use_rqmc:
@@ -55,7 +55,7 @@ def train(args, name, env, init_policy, use_rqmc=False):
         else:
             noises = np.random.randn(args.n_trajs, args.horizon, action_dim)
         paths = []
-        data = sampler.sample(policy, noises, horizon=args.horizon)
+        data = sampler.sample(policy, noises)
         for observations, actions, rewards in data:
             returns = []
             return_so_far = 0
@@ -77,6 +77,7 @@ def train(args, name, env, init_policy, use_rqmc=False):
         loss.backward()
         optim.step()
         iter_returns.append(np.mean([sum(p["rewards"]) for p in paths]))
+        print(np.mean([sum(p["rewards"]) for p in paths]))
         prog.set_postfix(ret=iter_returns[-1])
     return iter_returns
 
@@ -84,7 +85,7 @@ def main(args=None):
     args = parse_args(args)
     select_device(0 if torch.cuda.is_available() else -1)
     set_seed(args.seed)
-    env = CartPoleContinuousEnv()
+    env = HorizonWrapper(CartPoleContinuousEnv(), args.horizon)
     state_dim, action_dim = env.observation_space.shape[0], env.action_space.shape[0] 
     mean_network = get_mlp((state_dim,)+tuple(args.hidden_sizes)+(action_dim,), gate=nn.ReLU, output_gate=nn.Tanh)
     init_policy = GaussianPolicy(state_dim, action_dim, mean_network)
