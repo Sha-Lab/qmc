@@ -50,7 +50,7 @@ def train(args, name, env, init_policy, use_rqmc=False):
         if use_rqmc:
             loc = torch.zeros(args.horizon * action_dim)
             scale = torch.ones(args.horizon * action_dim)
-            noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy()
+            noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy().reshape(args.n_trajs, args.horizon, action_dim)
         else:
             noises = np.random.randn(args.n_trajs, args.horizon, action_dim)
         paths = []
@@ -88,8 +88,8 @@ def main(args=None):
     mean_network = get_mlp((state_dim,)+tuple(args.hidden_sizes)+(action_dim,), gate=nn.ReLU, output_gate=nn.Tanh)
     init_policy = GaussianPolicy(state_dim, action_dim, mean_network)
     info = dict(
-        mc=train(args, 'mc', env, init_policy),
         rqmc=train(args, 'rqmc', env, init_policy, use_rqmc=True),
+        mc=train(args, 'mc', env, init_policy),
     )
     if args.save_fn:
         Path(args.save_fn).parent.mkdir(parents=True, exist_ok=True)
