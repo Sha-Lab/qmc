@@ -20,14 +20,16 @@ from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
 # TODO: 
-# implement discount
+# (done) implement discount
 # check infinite horizon value estimation in MDP
 # value estimation with critic
-# run on general environment (zerobaseline, then actor critic)
+# (done) run on general environment (zerobaseline, then actor critic)
 # read LQR paper to learn the proof
-# check torch's multiprocessing, it might cost problems for sampler
-# make vectorized sampler to support gpu samping (multiprocessing with one gpu is not efficient)
+# (done) check torch's multiprocessing, it might cost problems for sampler
+# (done) make vectorized sampler to support gpu samping (multiprocessing with one gpu is not efficient)
 # how to quickly cut unpromising configuration?
+# implement thread to generate sobol sequence to acclerate training
+# implement socket for experiment across machines
 
 def parse_args(args):
     parser = argparse.ArgumentParser()
