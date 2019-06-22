@@ -16,6 +16,7 @@ from models import get_mlp, GaussianPolicy
 from utils import tensor, set_seed, MPSampler, SeqRunner, VecSampler, Config, select_device, HorizonWrapper
 from rqmc_distributions import Normal_RQMC
 
+# network is tanh, 64x64 with RMSProp
 
 def parse_args(args):
     parser = argparse.ArgumentParser()
