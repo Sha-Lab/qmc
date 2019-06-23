@@ -88,6 +88,23 @@ def search_vpg():
         return variant
     generate_args('exps/search_vpg', args, kwargs, variants, post_variant=post_variant, shuffle=True)
 
+@cmd()
+def search_vpg_trajs():
+    variants = {
+        '--n_trajs': [10, 20, 50, 100, 200],
+    }
+    args = []
+    kwargs = {
+        '--n_iters': 5000,
+        '--n_workers': 50,
+        '--hidden_sizes': (64, 64),
+        '--mode': 'seeds',
+        '--n_seeds': 5,
+    }
+    def post_variant(variant):
+        variant['--save_fn'] = 'data/search_vpg_trajs/{}'.format(variant['--n_trajs'])
+        return variant
+    generate_args('exps/search_vpg_trajs', args, kwargs, variants, post_variant=post_variant, shuffle=False)
 
 if __name__ == "__main__":
     with launch_ipdb_on_exception():

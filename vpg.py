@@ -13,7 +13,7 @@ from tqdm import tqdm, trange
 
 from envs import *
 from models import get_mlp, GaussianPolicy
-from utils import tensor, set_seed, MPSampler, SeqRunner, VecSampler, Config, select_device, HorizonWrapper
+from utils import tensor, set_seed, MPSampler, SeqRunner, VecSampler, Config, select_device, HorizonWrapper, running_seeds
 from rqmc_distributions import Normal_RQMC
 
 # network is tanh, 64x64 with RMSProp
@@ -30,6 +30,8 @@ def parse_args(args):
     parser.add_argument('--show_fig', action='store_true')
     parser.add_argument('--save_fig', type=str, default=None)
     parser.add_argument('--n_workers', type=int, default=8)
+    parser.add_argument('--mode', choices=['single', 'seeds'], default='single')
+    parser.add_argument('--n_seeds', type=int, default=5)
     parser.add_argument('--seed', type=int, default=0)
     return parser.parse_args(args)
 
@@ -80,13 +82,11 @@ def train(args, name, env, init_policy, use_rqmc=False):
         prog.set_postfix(ret=iter_returns[-1])
     return iter_returns
 
-def main(args=None):
-    args = parse_args(args)
-    select_device(0 if torch.cuda.is_available() else -1)
+def learning(args):
     set_seed(args.seed)
     env = HorizonWrapper(CartPoleContinuousEnv(), args.horizon)
     state_dim, action_dim = env.observation_space.shape[0], env.action_space.shape[0] 
-    mean_network = get_mlp((state_dim,)+tuple(args.hidden_sizes)+(action_dim,), gate=nn.ReLU, output_gate=nn.Tanh)
+    mean_network = get_mlp((state_dim,)+tuple(args.hidden_sizes)+(action_dim,), gate=nn.Tanh)
     init_policy = GaussianPolicy(state_dim, action_dim, mean_network)
     info = dict(
         rqmc=train(args, 'rqmc', env, init_policy, use_rqmc=True),
@@ -103,6 +103,17 @@ def main(args=None):
             plt.savefig(args.save_fig)
         if args.show_fig:
             plt.show()
+    return info
+
+def main(args=None):
+    args = parse_args(args)
+    select_device(0 if torch.cuda.is_available() else -1)
+    if args.mode == 'single':
+        learning(args)
+    elif args.mode == 'seeds':
+        running_seeds(args.save_fn, learning, argparse.Namespace(**vars(args)), args.n_seeds) # namespace on args to get a deepcopy
+    else:
+        raise Exception('unknown mode')
 
 if __name__ == "__main__":
     with launch_ipdb_on_exception():

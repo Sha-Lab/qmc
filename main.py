@@ -15,7 +15,7 @@ from pathlib import Path
 
 from envs import *
 from models import GaussianPolicy, get_mlp
-from utils import set_seed, rollout, mse, cummean, Sampler, SeqRunner, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss
+from utils import set_seed, rollout, mse, cummean, Sampler, SeqRunner, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
@@ -51,7 +51,7 @@ def parse_args(args):
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--show_fig', action='store_true')
     parser.add_argument('--save_fig', type=str, default=None)
-    parser.add_argument('--mode', choices=['single', 'over', 'collect'], default='single')
+    parser.add_argument('--mode', choices=['single', 'seeds', 'collect'], default='single')
     parser.add_argument('--n_seeds', type=int, default=200)
     parser.add_argument('--max_seed', type=int, default=100)
     parser.add_argument('--n_workers', type=int, default=1)
@@ -331,38 +331,6 @@ def learning(args):
     info = {**vars(args), 'out': out_set}
     return results, info
 
-def comparing_over_seeds(save_fn, sample_f, sample_args, num_seeds=200):
-    results = []
-    sample_args.save_fn = None # overwrite
-    for seed in range(num_seeds):
-        print('running seed {}/{}'.format(seed, num_seeds))
-        sample_args.seed = seed
-        result = sample_f(sample_args)
-        results.append(result)
-    with open(save_fn, 'wb') as f:
-        dill.dump(results, f)
-
-# run until a number of success seed is collected
-def collect_seeds(save_fn, sample_f, sample_args, success_f, n_seeds=50, max_seed=200):
-    results = []
-    sample_args.save_fn = None # overwrite, do not save
-    n_success = 0
-    for seed in range(max_seed):
-        print('running seed {}/{}, collecting seed {}/{}'.format(seed, max_seed, n_success, n_seeds))
-        sample_args.seed = seed
-        result = sample_f(sample_args)
-        if success_f(result):
-            print('success seed, appended')
-            n_success += 1
-        else:
-            print('fail seed, discarded')
-        results.append(result)
-        if n_success == n_seeds: break
-    save_fn = Path(save_fn) 
-    save_fn.parent.mkdir(parents=True, exist_ok=True) 
-    with open(save_fn, 'wb') as f:
-        dill.dump(results, f)
-
 def main(args=None):
     #select_device(0 if torch.cuda.is_available() else -1)
     select_device(-1)
@@ -377,8 +345,8 @@ def main(args=None):
         raise Exception('unsupported task')
     if args.mode == 'single':
         exp_f(args)
-    elif args.mode == 'over':
-        comparing_over_seeds(args.save_fn, exp_f, argparse.Namespace(**vars(args)), args.n_seeds) # why namespace on args???
+    elif args.mode == 'seeds':
+        running_seeds(args.save_fn, exp_f, argparse.Namespace(**vars(args)), args.n_seeds)
     elif args.mode == 'collect':
         assert args.task == 'learn'
         success_f = lambda result: len(result[1]['out']) == 0

@@ -1,6 +1,8 @@
 import gym
 import sys
 import copy
+import dill
+import json
 import numpy as np
 import random
 import torch
@@ -298,3 +300,36 @@ def variance_reduced_loss(states, actions, rewards, policy):
 
 def no_loss(states, actions, rewards, policy):
     return tensor(0.0, requires_grad=True)
+
+def running_seeds(save_fn, sample_f, sample_args, num_seeds=200):
+    results = []
+    sample_args.save_fn = None # overwrite
+    for seed in range(num_seeds):
+        print('running seed {}/{}'.format(seed, num_seeds))
+        sample_args.seed = seed
+        result = sample_f(sample_args)
+        results.append(result)
+    with open(save_fn, 'wb') as f:
+        dill.dump(results, f)
+
+# run until a number of success seed is collected
+def collect_seeds(save_fn, sample_f, sample_args, success_f, n_seeds=50, max_seed=200):
+    results = []
+    sample_args.save_fn = None # overwrite, do not save
+    n_success = 0
+    for seed in range(max_seed):
+        print('running seed {}/{}, collecting seed {}/{}'.format(seed, max_seed, n_success, n_seeds))
+        sample_args.seed = seed
+        result = sample_f(sample_args)
+        if success_f(result):
+            print('success seed, appended')
+            n_success += 1
+        else:
+            print('fail seed, discarded')
+        results.append(result)
+        if n_success == n_seeds: break
+    save_fn = Path(save_fn) 
+    save_fn.parent.mkdir(parents=True, exist_ok=True) 
+    with open(save_fn, 'wb') as f:
+        dill.dump(results, f)
+
