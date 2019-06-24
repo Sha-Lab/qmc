@@ -309,6 +309,7 @@ def running_seeds(save_fn, sample_f, sample_args, num_seeds=200):
         sample_args.seed = seed
         result = sample_f(sample_args)
         results.append(result)
+    Path(save_fn).parent.mkdir(parents=True, exist_ok=True)
     with open(save_fn, 'wb') as f:
         dill.dump(results, f)
 
