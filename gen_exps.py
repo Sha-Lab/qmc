@@ -91,15 +91,15 @@ def search_vpg():
 @cmd()
 def search_vpg_trajs():
     variants = {
-        '--n_trajs': [10, 20, 50, 100, 200],
+        '--n_trajs': [30, 40, 50, 60, 70, 80, 90, 100],
     }
     args = []
     kwargs = {
-        '--n_iters': 5000,
+        '--n_iters': 10000,
         '--n_workers': 50,
         '--hidden_sizes': (64, 64),
         '--mode': 'seeds',
-        '--n_seeds': 5,
+        '--n_seeds': 8,
     }
     def post_variant(variant):
         variant['--save_fn'] = 'data/search_vpg_trajs/{}'.format(variant['--n_trajs'])
