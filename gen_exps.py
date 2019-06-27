@@ -91,20 +91,20 @@ def search_vpg():
 @cmd()
 def search_vpg_trajs():
     variants = {
-        '--n_trajs': [30, 40, 50, 60, 70, 80, 90, 100],
+        '--n_trajs': [50, 60, 70, 80, 90, 100, 150, 200],
     }
     args = []
     kwargs = {
-        '--n_iters': 10000,
+        '--n_iters': 8000,
         '--n_workers': 50,
-        '--hidden_sizes': (64, 64),
+        '--hidden_sizes': (32, 32),
         '--mode': 'seeds',
         '--n_seeds': 8,
     }
     def post_variant(variant):
-        variant['--save_fn'] = 'data/search_vpg_trajs/{}'.format(variant['--n_trajs'])
+        variant['--save_fn'] = 'data/search_vpg_trajs_32/{}'.format(variant['--n_trajs'])
         return variant
-    generate_args('exps/search_vpg_trajs', args, kwargs, variants, post_variant=post_variant, shuffle=False)
+    generate_args('exps/search_vpg_trajs_32', args, kwargs, variants, post_variant=post_variant, shuffle=False)
 
 if __name__ == "__main__":
     with launch_ipdb_on_exception():
