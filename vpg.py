@@ -1,3 +1,4 @@
+import gym
 import copy
 import json
 import torch
@@ -20,6 +21,7 @@ from rqmc_distributions import Normal_RQMC
 
 def parse_args(args):
     parser = argparse.ArgumentParser()
+    parser.add_argument('--env', choices=['cartpole', 'ant'], default='cartpole')
     parser.add_argument('--n_trajs', type=int, default=500)
     parser.add_argument('--n_iters', type=int, default=6000)
     parser.add_argument('--horizon', type=int, default=100)
@@ -34,6 +36,15 @@ def parse_args(args):
     parser.add_argument('--n_seeds', type=int, default=5)
     parser.add_argument('--seed', type=int, default=0)
     return parser.parse_args(args)
+
+def get_env(args):
+    if args.env == 'cartpole':
+        env = HorizonWrapper(CartPoleContinuousEnv(), args.horizon)
+    elif args.env == 'ant':
+        env = HorizonWrapper(gym.make('Ant-v2'), args.horizon)
+    else:
+        raise Exception('unknown env')
+    return env
 
 def reinforce_loss(states, actions, returns, policy):
     log_probs = policy.distribution(states).log_prob(tensor(actions)).sum(-1)
@@ -84,7 +95,8 @@ def train(args, name, env, init_policy, use_rqmc=False):
 
 def learning(args):
     set_seed(args.seed)
-    env = HorizonWrapper(CartPoleContinuousEnv(), args.horizon)
+    #env = HorizonWrapper(CartPoleContinuousEnv(), args.horizon)
+    env = get_env(args)
     state_dim, action_dim = env.observation_space.shape[0], env.action_space.shape[0] 
     mean_network = get_mlp((state_dim,)+tuple(args.hidden_sizes)+(action_dim,), gate=nn.Tanh)
     init_policy = GaussianPolicy(state_dim, action_dim, mean_network)

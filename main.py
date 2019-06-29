@@ -37,7 +37,7 @@ def parse_args(args):
         '--task', 
         choices=['cost', 'grad', 'learn', 'inf'], 
         default='learn')
-    parser.add_argument('--env', choices=['lqr', 'WIP', 'IP', 'mdp', 'cartpole'], default='lqr')
+    parser.add_argument('--env', choices=['lqr', 'WIP', 'IP', 'cartpole', 'ant'], default='lqr')
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
     parser.add_argument('--init_scale', type=float, default=3.0)
     parser.add_argument('--PQ_kappa', type=float, default=3.0)
@@ -87,22 +87,10 @@ def get_env(args):
             max_steps=args.H,
             Sigma_s_scale=args.noise,
         )
-    elif args.env == 'mdp':
-        # 3 states, 2 actions
-        transition = np.array([
-            [[0.1, 0.9, 0.0], [0.0, 1.0, 0.0]],
-            [[0.0, 0.2, 0.8], [0.5, 0.0, 0.5]],
-            [[0.5, 0.0, 0.5], [0.0, 1.0, 0.0]],
-        ])
-        reward = np.array([
-            [0.0, 0.5],
-            [1.0, -1.0],
-            [0.5, 0.0],
-        ])
-        init_dist = np.array([1.0, 0.0, 0.0])
-        env = MDP(transition, reward, init_dist)
     elif args.env == 'cartpole':
         env = CartPoleContinuousEnv()
+    elif args.env == 'gym':
+        env = gym.make('Ant-v2')
     else:
         raise Exception('unsupported lqr env')
     return env
