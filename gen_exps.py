@@ -113,6 +113,7 @@ def search_vpg_ant_trajs():
     }
     args = []
     kwargs = {
+        '--env': 'ant',
         '--n_iters': 10000,
         '--n_workers': 4,
         '--hidden_sizes': (64, 64),
