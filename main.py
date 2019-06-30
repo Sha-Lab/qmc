@@ -15,27 +15,23 @@ from pathlib import Path
 
 from envs import *
 from models import GaussianPolicy, get_mlp
-from utils import set_seed, rollout, mse, cummean, Sampler, SeqRunner, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds
+from utils import set_seed, rollout, mse, cummean, MPSampler, SeqRunner, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
 # TODO: 
 # (done) implement discount
-# check infinite horizon value estimation in MDP
+# check why cost have different output now
 # value estimation with critic
-# (done) run on general environment (zerobaseline, then actor critic)
 # read LQR paper to learn the proof
-# (done) check torch's multiprocessing, it might cost problems for sampler
-# (done) make vectorized sampler to support gpu samping (multiprocessing with one gpu is not efficient)
 # how to quickly cut unpromising configuration?
 # implement thread to generate sobol sequence to acclerate training
-# implement socket for experiment across machines
 
 def parse_args(args):
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--task', 
-        choices=['cost', 'grad', 'learn', 'inf'], 
+        choices=['cost', 'grad', 'learn'], 
         default='learn')
     parser.add_argument('--env', choices=['lqr', 'WIP', 'IP', 'cartpole', 'ant'], default='lqr')
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
@@ -44,6 +40,7 @@ def parse_args(args):
     parser.add_argument('--AB_norm', type=float, default=1.0)
     parser.add_argument('-H', type=int, default=10, help='horizon')
     parser.add_argument('--noise', type=float, default=0.0, help='noise scale')
+    parser.add_argument('--rqmc_type', choices=['stepwise', 'trajwise'], default='trajwise')
     parser.add_argument('--n_trajs', type=int, default=800, help='number of trajectories used')
     parser.add_argument('--n_iters', type=int, default=200, help='number of iterations of training')
     parser.add_argument('-lr', type=float, default=5e-5)
@@ -118,16 +115,27 @@ def get_policy(args, env):
         raise Exception('unsupported policy type')
     return GaussianPolicy(N, M, mean_network)
 
-# error bar: https://stackoverflow.com/questions/12957582/plot-yerr-xerr-as-shaded-region-rather-than-error-bars
-#def compare_cost(horizon=100, num_trajs=1000, noise_scale=0.0, seed=0, save_dir=None, show_fig=False):
+def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
+    if noise_type == 'stepwise':
+        loc = torch.zeros(action_dim)
+        scale = torch.ones(action_dim)
+        noises = Normal_RQMC(loc, scale).sample(torch.Size([n_trajs, n_steps])).data.numpy()
+    elif noise_type == 'trajwise':
+        loc = torch.zeros(n_steps * action_dim)
+        scale = torch.ones(n_steps * action_dim)
+        noises = Normal_RQMC(loc, scale).sample(torch.Size([n_trajs])).data.numpy().reshape((n_trajs, n_steps, action_dim))
+    else:
+        raise Exception('unknown rqmc type')
+    return noises 
+
 def compare_cost(args):
     set_seed(args.seed)
     env = LQR(
         N=20,
         M=12,
         init_scale=1.0,
-        #max_steps=100,
-        max_steps=10,
+        max_steps=100,
+        #max_steps=10,
         Sigma_s_kappa=1.0,
         Q_kappa=1.0,
         P_kappa=1.0,
@@ -138,7 +146,7 @@ def compare_cost(args):
     K = env.optimal_controller()
     mean_network = nn.Linear(*K.shape[::-1], bias=False)
     mean_network.weight.data = tensor(K)
-    policy = GaussianPolicy(*K.shape[::-1], mean_network)
+    policy = GaussianPolicy(*K.shape[::-1], mean_network, learn_std=False, gate_output=False)
 
     mc_costs = [] # individual
     mc_means = [] # cumulative
@@ -150,9 +158,7 @@ def compare_cost(args):
 
     rqmc_costs = []
     rqmc_means = []
-    loc = torch.zeros(env.max_steps * env.M)
-    scale = torch.ones(env.max_steps * env.M)
-    rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy()
+    rqmc_noises = get_rqmc_noises(args.n_trajs, env.max_steps, env.M, args.rqmc_type)
     for i in tqdm(range(args.n_trajs), 'rqmc'):
         _, _, rewards = rollout(env, policy, rqmc_noises[i].reshape(env.max_steps, env.M))
         rqmc_costs.append(-rewards.sum())
@@ -184,7 +190,6 @@ def compare_cost(args):
         plt.show()
     return mc_errors, rqmc_errors, info
 
-#def compare_grad(horizon, num_trajs, noise_scale=0.0, seed=0, save_dir=None, show_fig=False):
 def compare_grad(args):
     set_seed(args.seed)
     env = LQR(
@@ -257,7 +262,7 @@ def compare_grad(args):
 def learning(args):
     set_seed(args.seed)
     env = get_env(args)
-    #sampler = Sampler(env, args.n_workers) # mp
+    #sampler = MPSampler(env, args.n_workers) # mp
     sampler = SeqRunner(env) # sequential
     init_policy = get_policy(args, env)
     print(init_policy)
