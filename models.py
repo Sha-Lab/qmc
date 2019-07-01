@@ -38,8 +38,8 @@ class GaussianPolicy(Policy):
     ):
         super().__init__()
         self.mean = mean_network
-        self.std = torch.zeros(action_dim)
-        if learn_std: self.std = nn.Parameter(self.std)
+        if learn_std: self.std = nn.Parameter(torch.zeros(action_dim))
+        else: self.std = torch.ones(action_dim)
         self.gate_output = gate_output
         self.learn_std = learn_std
         self.to(Config.DEVICE)
@@ -47,7 +47,7 @@ class GaussianPolicy(Policy):
     def distribution(self, obs):
         obs = tensor(obs)
         mean = self.mean(obs)
-        if gate_output: mean = torch.tanh(mean)
+        if self.gate_output: mean = torch.tanh(mean)
         if self.learn_std:
             dist = torch.distributions.Normal(mean, F.softplus(self.std))
         else:
