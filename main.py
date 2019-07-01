@@ -15,13 +15,13 @@ from pathlib import Path
 
 from envs import *
 from models import GaussianPolicy, get_mlp
-from utils import set_seed, rollout, mse, cummean, MPSampler, SeqRunner, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds
+from utils import set_seed, rollout, mse, cummean, MPSampler, SeqRunner, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gradient
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
 # TODO: 
 # (done) implement discount
-# check why cost have different output now
+# check why stepwise does not work
 # value estimation with critic
 # read LQR paper to learn the proof
 # how to quickly cut unpromising configuration?
@@ -203,11 +203,11 @@ def compare_grad(args):
         B_norm=1.0,
         Sigma_s_scale=args.noise,
     )
-    #K = env.optimal_controller()
-    K = np.random.randn(env.M, env.N) # debug, this one seems to work worse, by 1 magnitude
+    K = env.optimal_controller()
+    #K = np.random.randn(env.M, env.N) # debug, this one seems to work worse, by 1 magnitude
     mean_network = nn.Linear(*K.shape[::-1], bias=False)
     mean_network.weight.data = tensor(K)
-    policy = GaussianPolicy(*K.shape[::-1], mean_network)
+    policy = GaussianPolicy(*K.shape[::-1], mean_network, learn_std=False, gate_output=False)
 
     Sigma_a = np.diag(np.ones(env.M))
     Sigma_a_inv = np.linalg.inv(Sigma_a)
@@ -216,11 +216,7 @@ def compare_grad(args):
     for i in tqdm(range(args.n_trajs), 'mc'):
         noises = np.random.randn(env.max_steps, env.M)
         states, actions, rewards = rollout(env, policy, noises)
-        mc_grads.append(policy_gradient(states, actions, rewards, policy))
-        origin_grad = Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()
-        #print(mc_grads[-1] - origin_grad)
-        #exit()
-        #mc_grads.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum()) # need minus since I use cost formula in derivation
+        mc_grads.append(get_gradient(states, actions, rewards, policy, reinforce_loss))
     mc_grads = np.asarray(mc_grads)
     mc_means = np.cumsum(mc_grads, axis=0) / np.arange(1, len(mc_grads) + 1)[:, np.newaxis, np.newaxis]
     
@@ -230,8 +226,7 @@ def compare_grad(args):
     rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy()
     for i in tqdm(range(args.n_trajs), 'rqmc'):
         states, actions, rewards = rollout(env, policy, rqmc_noises[i].reshape(env.max_steps, env.M))
-        rqmc_grads.append(policy_gradient(states, actions, rewards, policy))
-        #rqmc_grads.append(Sigma_a_inv @ (actions - states @ K.T).T @ states * rewards.sum())
+        rqmc_grads.append(get_gradient(states, actions, rewards, policy, reinforce_loss))
     rqmc_grads = np.asarray(rqmc_grads)
     rqmc_means = np.cumsum(rqmc_grads, axis=0) / np.arange(1, len(rqmc_grads) + 1)[:, np.newaxis, np.newaxis]
 
