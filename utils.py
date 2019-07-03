@@ -301,6 +301,12 @@ def variance_reduced_loss(states, actions, rewards, policy):
 def no_loss(states, actions, rewards, policy):
     return tensor(0.0, requires_grad=True)
 
+# this is a tricky function, since it will affect the gradient of the policy
+def get_gradient(states, actions, rewards, policy, loss_fn):
+    policy.zero_grad()
+    loss_fn(states, actions, rewards, policy).backward() 
+    return np.array(policy.mean.weight.grad.cpu().numpy())
+
 def running_seeds(save_fn, sample_f, sample_args, num_seeds=200):
     results = []
     sample_args.save_fn = None # overwrite
