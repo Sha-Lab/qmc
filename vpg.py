@@ -85,6 +85,8 @@ def train(args, name, env, init_policy, use_rqmc=False):
         observations = np.concatenate([p["observations"] for p in paths])
         actions = np.concatenate([p["actions"] for p in paths])
         returns = np.concatenate([p["returns"] for p in paths])
+        # post processing
+        returns = (returns - np.mean(returns)) / (returns.std() + 1e-8)
         optim.zero_grad()
         loss = reinforce_loss(observations, actions, returns, policy)
         loss.backward()
