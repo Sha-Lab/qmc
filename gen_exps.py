@@ -76,6 +76,30 @@ def search_network_std(touch: int=1, shuffle: int=0):
     generate_args('exps/search_network_std', args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
 
 @cmd()
+def search_network_std_tanh(touch: int=1, shuffle: int=0):
+    variants = {
+        '--n_trajs': [60, 100, 150, 200, 300],
+        '-lr': [0.0005, 0.001],
+        '-H': [10, 15],
+        '--init_scale': [3.0, 5.0],
+    }
+    args = []
+    kwargs = {
+        '--task': 'learn',
+        '--n_iters': 300,
+        '--n_seeds': 10,
+        '--max_seed': 30,
+        '--mode': 'collect',
+        '--init_policy': 'mlp',
+        '--n_workers': 8,
+    }
+    def post_variant(variant):
+        variant['--save_fn'] = 'data/search_network_std_tanh/{}-{}-{}-{}'.format(*[variant[k] for k in ['--n_trajs', '-lr', '-H', '--init_scale']])
+        return variant
+    generate_args('exps/search_network_std_tanh', args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
+
+
+@cmd()
 def search_vpg():
     variants = {
         '--n_trajs': [500, 1000, 1500, 2000],

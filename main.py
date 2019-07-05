@@ -44,7 +44,7 @@ def parse_args(args):
     parser.add_argument('--n_trajs', type=int, default=800, help='number of trajectories used')
     parser.add_argument('--n_iters', type=int, default=200, help='number of iterations of training')
     parser.add_argument('-lr', type=float, default=5e-5)
-    parser.add_argument('--init_policy', choices=['optimal', 'linear', 'linear_bias', 'mlp', 'mlp_tanh'], default='linear')
+    parser.add_argument('--init_policy', choices=['optimal', 'linear', 'linear_bias', 'mlp'], default='linear')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--show_fig', action='store_true')
     parser.add_argument('--save_fig', type=str, default=None)
@@ -108,9 +108,7 @@ def get_policy(args, env):
         mean_network = nn.Linear(*K.shape[::-1], bias=True)
         mean_network.weight.data = tensor(K)
     elif args.init_policy == 'mlp':
-        mean_network = get_mlp((N, 16, M), gate=nn.ReLU)
-    elif args.init_policy == 'mlp_tanh':
-        mean_network = get_mlp((N, 16, M), gate=nn.ReLU, output_gate=nn.Tanh)
+        mean_network = get_mlp((N, 16, M), gate=nn.Tanh)
     else:
         raise Exception('unsupported policy type')
     return GaussianPolicy(N, M, mean_network)
