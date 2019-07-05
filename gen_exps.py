@@ -109,16 +109,16 @@ def search_vpg_trajs():
 @cmd()
 def search_vpg_ant_trajs():
     variants = {
-        '--n_trajs': [100, 150, 200, 300, 500],
+        '--n_trajs': [80, 100, 150],
     }
     args = []
     kwargs = {
         '--env': 'ant',
-        '--n_iters': 10000,
+        '--n_iters': 7000,
         '--n_workers': 4,
         '--hidden_sizes': (64, 64),
         '--mode': 'seeds',
-        '--n_seeds': 8,
+        '--n_seeds': 5,
     }
     def post_variant(variant):
         variant['--save_fn'] = 'data/search_vpg_ant_trajs/{}'.format(variant['--n_trajs'])
