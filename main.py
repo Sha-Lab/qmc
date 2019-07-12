@@ -275,9 +275,10 @@ def learning(args):
             returns = []
             loss = [] # policy gradient loss
             if use_rqmc:
-                loc = torch.zeros(env.max_steps * M)
-                scale = torch.ones(env.max_steps * M) 
-                noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy().reshape(args.n_trajs, env.max_steps, M)
+                noises = get_rqmc_noises(args.n_trajs, env.max_steps, M, args.rqmc_type) 
+                #loc = torch.zeros(env.max_steps * M)
+                #scale = torch.ones(env.max_steps * M) 
+                #noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy().reshape(args.n_trajs, env.max_steps, M)
             else:
                 noises = np.random.randn(args.n_trajs, env.max_steps, M)
             data = sampler.sample(policy, noises) # mp
