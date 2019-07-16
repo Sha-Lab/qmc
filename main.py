@@ -115,9 +115,12 @@ def get_policy(args, env):
 
 def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
     if noise_type == 'stepwise':
-        loc = torch.zeros(action_dim)
-        scale = torch.ones(action_dim)
-        noises = Normal_RQMC(loc, scale).sample(torch.Size([n_trajs, n_steps])).data.numpy()
+        #loc = torch.zeros(action_dim)
+        #scale = torch.ones(action_dim)
+        #noises = Normal_RQMC(loc, scale).sample(torch.Size([n_trajs, n_steps])).data.numpy()
+        from scipy.stats import norm
+        noises = dist_rqmc.Uniform_RQMC(dim=action_dim).sample(n_steps)
+        noises = norm.ppf((np.random.randn(n_trajs, n_steps, action_dim) + noises) % 1.0)
     elif noise_type == 'trajwise':
         loc = torch.zeros(n_steps * action_dim)
         scale = torch.ones(n_steps * action_dim)
