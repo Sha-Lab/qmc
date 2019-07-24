@@ -76,6 +76,55 @@ def search_network_std(touch: int=1, shuffle: int=0):
     generate_args('exps/search_network_std', args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
 
 @cmd()
+def search_network_stepwise(touch: int=1, shuffle: int=0):
+    variants = {
+        '--n_trajs': [60, 100, 150, 200, 300],
+        '-lr': [0.0001, 0.0005, 0.001],
+        '-H': [5, 10, 15],
+        '--init_scale': [1.0, 3.0, 5.0],
+    }
+    args = []
+    kwargs = {
+        '--task': 'learn',
+        '--n_iters': 300,
+        '--n_seeds': 10,
+        '--max_seed': 30,
+        '--mode': 'collect',
+        '--init_policy': 'mlp',
+        '--n_workers': 8,
+        '--rqmc_type': 'stepwise',
+    }
+    def post_variant(variant):
+        variant['--save_fn'] = 'data/search_network_stepwise/{}-{}-{}-{}'.format(*[variant[k] for k in ['--n_trajs', '-lr', '-H', '--init_scale']])
+        return variant
+    generate_args('exps/search_network_stepwise', args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
+
+
+@cmd()
+def search_network_std_tanh(touch: int=1, shuffle: int=0):
+    variants = {
+        '--n_trajs': [60, 100, 150, 200, 300],
+        '-lr': [0.0005, 0.001],
+        '-H': [10, 15],
+        '--init_scale': [3.0, 5.0],
+    }
+    args = []
+    kwargs = {
+        '--task': 'learn',
+        '--n_iters': 300,
+        '--n_seeds': 10,
+        '--max_seed': 30,
+        '--mode': 'collect',
+        '--init_policy': 'mlp',
+        '--n_workers': 8,
+    }
+    def post_variant(variant):
+        variant['--save_fn'] = 'data/search_network_std_tanh/{}-{}-{}-{}'.format(*[variant[k] for k in ['--n_trajs', '-lr', '-H', '--init_scale']])
+        return variant
+    generate_args('exps/search_network_std_tanh', args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
+
+
+@cmd()
 def search_vpg():
     variants = {
         '--n_trajs': [500, 1000, 1500, 2000],
@@ -109,16 +158,16 @@ def search_vpg_trajs():
 @cmd()
 def search_vpg_ant_trajs():
     variants = {
-        '--n_trajs': [100, 150, 200, 300, 500],
+        '--n_trajs': [80, 100, 150],
     }
     args = []
     kwargs = {
         '--env': 'ant',
-        '--n_iters': 10000,
+        '--n_iters': 7000,
         '--n_workers': 4,
         '--hidden_sizes': (64, 64),
         '--mode': 'seeds',
-        '--n_seeds': 8,
+        '--n_seeds': 5,
     }
     def post_variant(variant):
         variant['--save_fn'] = 'data/search_vpg_ant_trajs/{}'.format(variant['--n_trajs'])

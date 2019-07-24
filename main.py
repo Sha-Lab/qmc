@@ -43,7 +43,7 @@ def parse_args(args):
     parser.add_argument('--n_trajs', type=int, default=800, help='number of trajectories used')
     parser.add_argument('--n_iters', type=int, default=200, help='number of iterations of training')
     parser.add_argument('-lr', type=float, default=5e-5)
-    parser.add_argument('--init_policy', choices=['optimal', 'linear', 'linear_bias', 'mlp', 'mlp_tanh'], default='linear')
+    parser.add_argument('--init_policy', choices=['optimal', 'linear', 'linear_bias', 'mlp'], default='linear')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--show_fig', action='store_true')
     parser.add_argument('--save_fig', type=str, default=None)
@@ -107,9 +107,7 @@ def get_policy(args, env):
         mean_network = nn.Linear(*K.shape[::-1], bias=True)
         mean_network.weight.data = tensor(K)
     elif args.init_policy == 'mlp':
-        mean_network = get_mlp((N, 16, M), gate=nn.ReLU)
-    elif args.init_policy == 'mlp_tanh':
-        mean_network = get_mlp((N, 16, M), gate=nn.ReLU, output_gate=nn.Tanh)
+        mean_network = get_mlp((N, 16, M), gate=nn.Tanh)
     else:
         raise Exception('unsupported policy type')
     return GaussianPolicy(N, M, mean_network)
@@ -123,6 +121,7 @@ def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
             #sub_noises = Normal_RQMC(loc, scale).sample(torch.Size([100, n_steps])).data.numpy()
             #noises.append(sub_noises)
         #noises = np.concatenate(noises, 0)
+        #noises = Normal_RQMC(loc, scale).sample(torch.Size([n_trajs, n_steps])).data.numpy()
         from scipy.stats import norm
         noises = dist_rqmc.Uniform_RQMC(dim=action_dim).sample(n_steps)
         noises = norm.ppf((np.random.randn(n_trajs, n_steps, action_dim) + noises) % 1.0)
@@ -305,9 +304,10 @@ def learning(args):
             returns = []
             loss = [] # policy gradient loss
             if use_rqmc:
-                loc = torch.zeros(env.max_steps * M)
-                scale = torch.ones(env.max_steps * M) 
-                noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy().reshape(args.n_trajs, env.max_steps, M)
+                noises = get_rqmc_noises(args.n_trajs, env.max_steps, M, args.rqmc_type) 
+                #loc = torch.zeros(env.max_steps * M)
+                #scale = torch.ones(env.max_steps * M) 
+                #noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy().reshape(args.n_trajs, env.max_steps, M)
             else:
                 noises = np.random.randn(args.n_trajs, env.max_steps, M)
             data = sampler.sample(policy, noises) # mp
