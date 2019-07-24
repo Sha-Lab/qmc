@@ -8,11 +8,11 @@ from scipy.stats import norm
 
 class Uniform_RQMC:
     def __init__(self, dim=1, scrambled=False):
-        self.dim = dim
+        self.dim = dim 
         self.scrambled = scrambled
         if scrambled:
             self.bias = np.random.rand(dim)
-        self.seed = 1
+        self.seed = 1 
 
     def sample(self, size):
         res = []
@@ -20,8 +20,8 @@ class Uniform_RQMC:
             vec, self.seed = sobol_seq.i4_sobol(self.dim, self.seed)
             res.append(vec)
         res = np.asarray(res)
-        if self.scrambled: res += self.bias
-        return res
+        if self.scrambled: res = (res + self.bias) % 1.0 
+        return res 
 
 class Normal_RQMC:
     def __init__(self, dim=1, scrambled=False):
@@ -29,3 +29,4 @@ class Normal_RQMC:
 
     def sample(self, size):
         return norm.ppf(self.sampler.sample(size))
+

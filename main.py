@@ -17,7 +17,7 @@ from envs import *
 from models import GaussianPolicy, get_mlp
 from utils import set_seed, rollout, mse, cummean, MPSampler, SeqRunner, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gradient
 from torch.distributions import Uniform, Normal
-from rqmc_distributions import Uniform_RQMC, Normal_RQMC
+from rqmc_distributions import Uniform_RQMC, Normal_RQMC, dist_rqmc
 
 # TODO: 
 # (done) implement discount
