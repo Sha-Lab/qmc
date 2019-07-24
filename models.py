@@ -64,3 +64,7 @@ class GaussianPolicy(Policy):
         else:
             action = mean + tensor(noise)
         return action.cpu().detach().numpy()
+
+class NoisePolicy(Policy):
+    def forward(self, obs, noise):
+        return noise
