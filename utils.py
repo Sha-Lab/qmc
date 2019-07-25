@@ -13,9 +13,13 @@ import filelock
 import traceback
 import subprocess
 import torch.multiprocessing as mp
+import torch.nn.functional as F
 from inspect import signature
 from pathlib import Path
 from termcolor import colored
+from scipy.stats import norm
+
+from rqmc_distributions import dist_rqmc
 
 class Config:
     DEVICE = torch.device('cpu')
@@ -158,6 +162,8 @@ def rollout(env, policy, noises):
     states = []
     actions = []
     rewards = []
+    next_states = []
+    terminals = []
     done = False
     s = env.reset()
     cur_step = 0
@@ -168,9 +174,11 @@ def rollout(env, policy, noises):
         states.append(s)
         actions.append(a)
         rewards.append(r)
+        next_states.append(next_s)
+        terminals.append(done)
         s = next_s
         cur_step += 1
-    return np.asarray(states), np.asarray(actions), np.asarray(rewards)
+    return np.asarray(states), np.asarray(actions), np.asarray(rewards), np.asarray(next_states), np.asarray(terminals)
   
 def mse(a, b):
     return ((a - b) ** 2).mean()
@@ -219,6 +227,79 @@ class HorizonWrapper(gym.Wrapper):
         self.t += 1
         if self.t == self.horizon: done = True
         return next_state, reward, done, info
+
+class LastWrapper(gym.Wrapper):
+    def __init__(self, env):
+        super().__init__(env)
+
+    def __getattribute__(self, attr):
+        if attr == 'env':
+            return object.__getattribute__(self, attr)
+        env = self.env
+        while True:
+            if hasattr(env, attr):
+                return getattr(env, attr)
+            if env.unwrapped == env: break
+            env = env.env 
+        raise Exception('attribute error: {}'.format(attr))
+
+class EnvWrapper(gym.Wrapper):
+    def __init__(self, env):
+        super().__init__(env)
+
+    @property
+    def last(self):
+        return LastWrapper(self)
+
+# use state as the value to sort
+class SortableWrapper(EnvWrapper):
+    def __init__(self, env):
+        super().__init__(env)
+
+    def reset(self):
+        self.val = self.env.reset()
+        return self.val
+
+    def step(self, action):
+        next_state, reward, done, info = self.env.step(action)
+        self.val = next_state
+        return next_state, reward, done, info
+
+class MonitorWrapper(EnvWrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        self.traj = None
+        self.monitor = False
+
+    def start_monitor(self, trajs=None):
+        assert not self.monitor, 'already start'
+        self.trajs = trajs
+        self.monitor = True
+
+    def close_monitor(self):
+        assert self.monitor, 'already close'
+        self.traj = None
+        self.monitor = False
+
+    def reset(self):
+        if self.monitor:
+            if self.traj is not None and self.trajs is not None:
+                self.trajs.append(self.traj)
+            self.traj = dict(states=[], actions=[], rewards=[])
+        self.cur_state = self.env.reset()
+        return self.cur_state
+
+    def step(self, action):
+        next_state, reward, done, info = self.env.step(action)
+        if self.monitor:
+            self.traj['states'].append(self.cur_state)
+            self.traj['actions'].append(action)
+            self.traj['rewards'].append(reward)
+        self.cur_state = next_state
+        return next_state, reward, done, info
+
+    def get_traj(self):
+        return self.traj
 
 class VecEnv:
     def __init__(self, envs):
@@ -273,6 +354,59 @@ class VecSampler:
             states = next_states
         return data
 
+def sort_by_norm(envs):
+    return sorted(envs, key=lambda env: np.linalg.norm(env.last.val))
+
+def sort_by_val(envs):
+    return sorted(envs, key=lambda env: env.last.val)
+
+def sort_by_optimal_value(envs):
+    K = envs[0].last.optimal_controller()
+    Sigma_a = np.eye(envs[0].last.M)
+    return sorted(envs, key=lambda env: env.last.expected_cost(K, Sigma_a))
+
+def sort_envs(envs, sort_f, stopped):
+    return sort_f([env for env, done in zip(envs, stopped) if not done]) + \
+        [env for env, done in zip(envs, stopped) if done]
+
+def scramble_points(points):
+    return (points + np.random.randn(*points.shape)) % 1.0
+
+# sort f should take pair as input!
+# I have to save using monitor is very ugly...
+class ArrayRQMCSampler:
+    def __init__(self, env, n_envs, sort_f=None):
+        envs = [copy.deepcopy(MonitorWrapper(env)) for _ in range(n_envs)]
+        for env, seed in zip(envs, np.random.randint(Config.SEED_RANGE, size=len(envs))):
+            env.seed(int(seed))
+        self.env = VecEnv(envs)
+        self.n_envs = n_envs
+        self.sort_f = sort_f
+        # sobol does not need to sort the first dimension
+        self.points = dist_rqmc.Uniform_RQMC(env.action_space.shape[0]).sample(n_envs) 
+        
+    def sample(self, policy, times):
+        data = []
+        for _ in range(times):
+            rollouts = []
+            for env in self.env.envs: env.start_monitor(rollouts)
+            states = self.env.reset()
+            terminals = [False for _ in range(self.n_envs)]
+            stopped = np.zeros(len(states), dtype=np.bool) # this should also be sorted...
+            while not np.all(stopped):
+                self.env.envs = sort_envs(self.env.envs, self.sort_f, stopped)
+                noises = norm.ppf(scramble_points(self.points))
+                actions = policy(states, noises)
+                next_states, rewards, terminals, _ = self.env.step(actions)
+                for i, terminal in enumerate(terminals):
+                    if stopped[i]: continue
+                    if terminal:
+                        self.env.envs[i].close_monitor()
+                        stopped[i] = True
+                states = next_states
+            data.extend([[rollout[k] for k in ['states', 'actions', 'rewards']] for rollout in rollouts])
+        return data 
+
 class SeqRunner:
     def __init__(self, env):
         self.env = env
@@ -300,6 +434,9 @@ def variance_reduced_loss(states, actions, rewards, policy):
 
 def no_loss(states, actions, rewards, policy):
     return tensor(0.0, requires_grad=True)
+
+def critic_loss(states, returns, critic):
+    return F.mse_loss(critic(tensor(states)).squeeze(1), tensor(returns))
 
 # this is a tricky function, since it will affect the gradient of the policy
 def get_gradient(states, actions, rewards, policy, loss_fn):

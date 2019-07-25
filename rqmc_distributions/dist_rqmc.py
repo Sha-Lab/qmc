@@ -20,8 +20,8 @@ class Uniform_RQMC:
             vec, self.seed = sobol_seq.i4_sobol(self.dim, self.seed)
             res.append(vec)
         res = np.asarray(res)
-        if self.scrambled: res = (res + self.bias) % 1.0 
-        return res 
+        if self.scrambled: res = (res + self.bias) % 1.0
+        return res
 
 class Normal_RQMC:
     def __init__(self, dim=1, scrambled=False):

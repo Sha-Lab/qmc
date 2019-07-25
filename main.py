@@ -15,7 +15,7 @@ from pathlib import Path
 
 from envs import *
 from models import GaussianPolicy, get_mlp
-from utils import set_seed, rollout, mse, cummean, MPSampler, SeqRunner, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gradient
+from utils import set_seed, rollout, mse, cummean, MPSampler, SeqRunner, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gradient, sort_by_norm, sort_by_optimal_value, ArrayRQMCSampler, SortableWrapper, critic_loss
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC, dist_rqmc
 
@@ -23,7 +23,6 @@ from rqmc_distributions import Uniform_RQMC, Normal_RQMC, dist_rqmc
 # (done) implement discount
 # check why stepwise does not work
 # value estimation with critic
-# read LQR paper to learn the proof
 # how to quickly cut unpromising configuration?
 # implement thread to generate sobol sequence to acclerate training
 
@@ -31,7 +30,7 @@ def parse_args(args):
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--task', 
-        choices=['cost', 'grad', 'learn'], 
+        choices=['cost', 'grad', 'learn', 'critic'], 
         default='learn')
     parser.add_argument('--env', choices=['lqr', 'WIP', 'IP', 'cartpole', 'ant'], default='lqr')
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
@@ -40,7 +39,7 @@ def parse_args(args):
     parser.add_argument('--AB_norm', type=float, default=1.0)
     parser.add_argument('-H', type=int, default=10, help='horizon')
     parser.add_argument('--noise', type=float, default=0.0, help='noise scale')
-    parser.add_argument('--rqmc_type', choices=['stepwise', 'trajwise'], default='trajwise')
+    parser.add_argument('--rqmc_type', choices=['stepwise', 'trajwise', 'array'], default='trajwise')
     parser.add_argument('--n_trajs', type=int, default=800, help='number of trajectories used')
     parser.add_argument('--n_iters', type=int, default=200, help='number of iterations of training')
     parser.add_argument('-lr', type=float, default=5e-5)
@@ -117,6 +116,11 @@ def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
     if noise_type == 'stepwise':
         #loc = torch.zeros(action_dim)
         #scale = torch.ones(action_dim)
+        #noises = []
+        #for i in range(0, n_trajs, 100):
+            #sub_noises = Normal_RQMC(loc, scale).sample(torch.Size([100, n_steps])).data.numpy()
+            #noises.append(sub_noises)
+        #noises = np.concatenate(noises, 0)
         #noises = Normal_RQMC(loc, scale).sample(torch.Size([n_trajs, n_steps])).data.numpy()
         from scipy.stats import norm
         noises = dist_rqmc.Uniform_RQMC(dim=action_dim).sample(n_steps)
@@ -125,6 +129,10 @@ def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
         loc = torch.zeros(n_steps * action_dim)
         scale = torch.ones(n_steps * action_dim)
         noises = Normal_RQMC(loc, scale).sample(torch.Size([n_trajs])).data.numpy().reshape((n_trajs, n_steps, action_dim))
+    elif noise_type == 'array':
+        from scipy.stats import norm
+        noises = dist_rqmc.Uniform_RQMC(dim=action_dim).sample(n_trajs).reshape((n_trajs, 1, action_dim))
+        noises = norm.ppf((noises + np.random.randn(n_trajs, n_steps, action_dim)) % 1.0)
     else:
         raise Exception('unknown rqmc type')
     return noises 
@@ -135,8 +143,8 @@ def compare_cost(args):
         #N=20,
         #M=12,
         init_scale=1.0,
-        #max_steps=100,
-        max_steps=10,
+        #max_steps=10,
+        max_steps=20,
         Sigma_s_kappa=1.0,
         Q_kappa=1.0,
         P_kappa=1.0,
@@ -149,6 +157,7 @@ def compare_cost(args):
     mean_network.weight.data = tensor(K)
     policy = GaussianPolicy(*K.shape[::-1], mean_network, learn_std=False, gate_output=False)
 
+    # mc
     mc_costs = [] # individual
     mc_means = [] # cumulative
     for i in tqdm(range(args.n_trajs), 'mc'):
@@ -157,6 +166,7 @@ def compare_cost(args):
         mc_costs.append(-rewards.sum())
         mc_means.append(np.mean(mc_costs))
 
+    # rqmc
     rqmc_costs = []
     rqmc_means = []
     rqmc_noises = get_rqmc_noises(args.n_trajs, env.max_steps, env.M, args.rqmc_type)
@@ -165,14 +175,25 @@ def compare_cost(args):
         rqmc_costs.append(-rewards.sum())
         rqmc_means.append(np.mean(rqmc_costs))
 
+    # array rqmc
+    array_costs = []
+    array_means = []
+    data = ArrayRQMCSampler(SortableWrapper(env), n_envs=args.n_trajs, sort_f=sort_by_optimal_value).sample(policy, 1)
+    for traj in data:
+        _, _, rewards = traj
+        rewards = np.asarray(rewards)
+        array_costs.append(-rewards.sum())
+        array_means.append(np.mean(array_costs))
+
     expected_cost = env.expected_cost(K, np.diag(np.ones(env.M)))
 
     mc_errors = np.abs(mc_means - expected_cost)
     rqmc_errors = np.abs(rqmc_means - expected_cost)
-    info = {**vars(args), 'mc_costs': mc_costs, 'rqmc_costs': rqmc_costs}
+    array_errors = np.abs(array_means - expected_cost)
+    info = {**vars(args), 'mc_costs': mc_costs, 'rqmc_costs': rqmc_costs, 'array_costs': array_costs}
     if args.save_fn is not None:
         with open(args.save_fn, 'wb') as f:
-            dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, info=info), f)
+            dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, array_errors=array_errors, info=info), f)
     if args.show_fig:
         data = pd.concat([
             pd.DataFrame({
@@ -185,11 +206,16 @@ def compare_cost(args):
                 'x': np.arange(len(rqmc_errors)),
                 'error': rqmc_errors,
             }),
+            pd.DataFrame({
+                'name': 'array',
+                'x': np.arange(len(array_errors)),
+                'error': array_errors,
+            }),
         ])
         plot = sns.lineplot(x='x', y='error', hue='name', data=data)
         plot.set(yscale='log')
         plt.show()
-    return mc_errors, rqmc_errors, info
+    return mc_errors, rqmc_errors, array_errors, info
 
 def compare_grad(args):
     set_seed(args.seed)
@@ -285,7 +311,7 @@ def learning(args):
             else:
                 noises = np.random.randn(args.n_trajs, env.max_steps, M)
             data = sampler.sample(policy, noises) # mp
-            for states, actions, rewards in data:  
+            for states, actions, rewards, _, _ in data:  
                 loss.append(loss_fn(states, actions, rewards, policy))
                 returns.append(rewards.sum())
                 if len(states) != args.H and args.env in LQR_ENVS: 
@@ -321,6 +347,57 @@ def learning(args):
     info = {**vars(args), 'out': out_set}
     return results, info
 
+def learn_critic(args):
+    set_seed(args.seed)
+    env = get_env(args)
+    sampler = MPSampler(env, args.n_workers) # mp
+    #sampler = SeqRunner(env) # sequential
+    init_policy = get_policy(args, env)
+    init_critic = get_mlp((env.N, 32, 1), gate=nn.ReLU, output_gate=None)
+    def train(name, loss_fn, init_policy, init_critic, use_rqmc=False, n_iters=None):
+        if n_iters is None: n_iters = args.n_iters
+        policy = copy.deepcopy(init_policy)
+        critic = copy.deepcopy(init_critic)
+        optim = torch.optim.SGD(critic.parameters(), args.lr)
+        all_loss = []
+        prog = trange(n_iters, desc=name)
+        N = env.observation_space.shape[0]
+        M = env.action_space.shape[0] 
+        for _ in prog:
+            returns = []
+            loss = []
+            if use_rqmc:
+                loc = torch.zeros(env.max_steps * M)
+                scale = torch.ones(env.max_steps * M) 
+                noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy().reshape(args.n_trajs, env.max_steps, M)
+            else:
+                noises = np.random.randn(args.n_trajs, env.max_steps, M)
+            data = sampler.sample(policy, noises)
+            for states, actions, rewards, next_states, terminals in data:  
+                returns.append(np.cumsum(rewards[::-1])[::-1] + (1 - terminals) * critic(tensor(next_states)).squeeze(1).detach().numpy())
+            loss = loss_fn(states, returns, critic)
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
+            all_loss.append(loss.data.numpy())
+            prog.set_postfix(loss=all_loss[-1])
+        return all_loss
+    results = dict(
+        mc=train('mc', critic_loss, init_policy, init_critic),
+        rqmc=train('rqmc', critic_loss, init_policy, init_critic, use_rqmc=True),
+    )
+    if args.show_fig or args.save_fig is not None:
+        errors = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs)), 'error': errs}) for name, errs in results.items()])  
+        plot = sns.lineplot(x='x', y='error', hue='name', data=errors)
+        #plt.yscale('log')
+        if args.save_fig:
+            plt.savefig(args.save_fig)
+        if args.show_fig:
+            plt.show()
+    info = {**vars(args)}
+    return results, info
+
+
 def main(args=None):
     #select_device(0 if torch.cuda.is_available() else -1)
     select_device(-1)
@@ -331,6 +408,8 @@ def main(args=None):
         exp_f = compare_cost
     elif args.task == 'grad':
         exp_f = compare_grad
+    elif args.task == 'critic':
+        exp_f = learn_critic
     else:
         raise Exception('unsupported task')
     if args.mode == 'single':
