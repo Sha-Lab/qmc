@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 import torch.nn.functional as F
 from torch import nn
 from utils import Config, tensor
@@ -34,7 +35,8 @@ class GaussianPolicy(Policy):
         action_dim,
         mean_network,
         learn_std=True,
-        gate_output=True,
+        #gate_output=True,
+        gate_output=False,
     ):
         super().__init__()
         self.mean = mean_network
@@ -58,13 +60,61 @@ class GaussianPolicy(Policy):
         #:: there is an issue with gpu of multiprocessing, unless you want to have one GPU each process, it is not worth it.
         obs = tensor(obs)
         mean = self.mean(obs)
-        if self.gate_output: mean = torch.tanh(mean)
+        if self.gate_output:
+            mean = torch.tanh(mean)
         if self.learn_std:
             action = mean + tensor(noise) * F.softplus(self.std)
+            #action = mean
         else:
             action = mean + tensor(noise)
+            #action = mean
         return action.cpu().detach().numpy()
 
 class NoisePolicy(Policy):
     def forward(self, obs, noise):
         return noise
+
+class PGPELinearPolicy(nn.Module):
+    def __init__(self, state_dim, action_dim):
+        super().__init__()
+        mean = np.random.randn(action_dim, state_dim).astype(np.float32) 
+        self.mean = nn.Parameter(torch.from_numpy(mean.T))
+        self._std = nn.Parameter(-torch.ones(state_dim, action_dim))
+        self.parameter_dim = state_dim * action_dim
+        self.parameter_shape = [state_dim, action_dim]
+
+    @property
+    def std(self):
+        return F.softplus(self._std)
+
+    def reshape(self, parameters):
+        return parameters.reshape(self.parameter_shape)
+
+    def reshape_n(self, parameters):
+        return parameters.reshape([-1] + self.parameter_shape)
+
+    def set_noise(self, noise):
+        self.policy = self.mean + tensor(noise).reshape(*self.parameter_shape) * self.std
+        #self.policy = self.mean
+
+    def distribution(self):
+        dist = torch.distributions.Normal(self.mean, self.std)
+        return dist 
+
+    def forward(self, obs):
+        obs = tensor(obs)
+        return torch.matmul(obs, self.policy).cpu().detach().numpy()
+        #return F.tanh(torch.matmul(obs, self.policy)).cpu().detach().numpy()
+
+class MovingAverageCritic:
+    def __init__(self, discount=0.8):
+        self.avg = 0.0
+        self.discount = discount
+        self.first = True
+
+    def update(self, val):
+        if self.first:
+            self.avg = val
+            self.first = False
+        else:
+            self.avg = self.discount * self.avg + (1 - self.discount) * val

@@ -158,7 +158,7 @@ def set_seed(seed):
             torch.cuda.manual_seed(seed)
 
 # environment might has different random seed
-def rollout(env, policy, noises):
+def rollout(env, policy, noises, deterministic=False):
     states = []
     actions = []
     rewards = []
@@ -167,9 +167,12 @@ def rollout(env, policy, noises):
     done = False
     s = env.reset()
     cur_step = 0
+    if deterministic: policy.set_noise(noises)
     while not done:
-        #a = K.dot(s) + noises[cur_step]
-        a = policy(s, noises[cur_step])
+        if deterministic:
+            a = policy(s)
+        else:
+            a = policy(s, noises[cur_step])
         next_s, r, done, _ = env.step(a)
         states.append(s)
         actions.append(a)
@@ -193,21 +196,29 @@ def sample_init(env, init_seeds):
     seed = init_seeds.get()
     env.seed(seed)
 
-def _rollout(policy, noises):
+def stochastic_policy_rollout(policy, noises):
     global sample_env
     return rollout(sample_env, policy, noises)
+
+def deterministic_policy_rollout(policy, noises):
+    global sample_env
+    return rollout(sample_env, policy, noises, deterministic=True)
 
 # initializer take init_queue as input
 # This is just for rollout
 class MPSampler:
-    def __init__(self, env, n_processes=0):
+    def __init__(self, env, n_processes=0, deterministic=False):
         if n_processes <= 0: n_processes = mp.cpu_count()
         init_seeds = mp.Queue()
         for seed in np.random.randint(Config.SEED_RANGE, size=n_processes): init_seeds.put(int(seed)) # initseeds
         self.pool = mp.Pool(n_processes, sample_init, (env, init_seeds))
+        if deterministic:
+            self.rollout_f = deterministic_policy_rollout
+        else:
+            self.rollout_f = stochastic_policy_rollout
         
     def sample(self, policy, noises): # might cost problems
-        return self.pool.starmap_async(_rollout, [(policy, noise) for noise in noises]).get()
+        return self.pool.starmap_async(self.rollout_f, [(policy, noise) for noise in noises]).get()
 
     def __del__(self):
         self.pool.close()
@@ -363,7 +374,7 @@ def sort_by_val(envs):
 def sort_by_optimal_value(envs):
     K = envs[0].last.optimal_controller()
     Sigma_a = np.eye(envs[0].last.M)
-    return sorted(envs, key=lambda env: env.last.expected_cost(K, Sigma_a))
+    return sorted(envs, key=lambda env: env.last.expected_cost(K, Sigma_a, x0=env.last.val, T=env.last.max_steps-env.last.num_steps))
 
 def sort_envs(envs, sort_f, stopped):
     return sort_f([env for env, done in zip(envs, stopped) if not done]) + \
@@ -408,12 +419,13 @@ class ArrayRQMCSampler:
         return data 
 
 class SeqRunner:
-    def __init__(self, env):
+    def __init__(self, env, deterministic=False):
         self.env = env
         env.seed(int(np.random.randint(Config.SEED_RANGE)))
+        self.deterministic = deterministic
 
     def sample(self, policy, noises):
-        return [rollout(self.env, policy, noise) for noise in noises]
+        return [rollout(self.env, policy, noise, deterministic=self.deterministic) for noise in noises]
 
 def cumulative_return(rewards, discount):
     returns = []
@@ -431,6 +443,13 @@ def variance_reduced_loss(states, actions, rewards, policy):
     log_probs = policy.distribution(states).log_prob(tensor(actions)).sum(-1)
     returns = rewards[::-1].cumsum()[::-1].copy()
     return (log_probs * tensor(returns)).sum()
+
+def PGPE_loss(rewards, policy, noises, critic=None):
+    returns = rewards.sum(-1)
+    if critic is not None: returns = returns - critic.avg
+    noises = policy.reshape_n(tensor(noises))
+    log_probs = policy.distribution().log_prob((policy.mean + noises * policy.std).detach()).sum(-1)
+    return (log_probs * tensor(rewards).sum(-1)).sum()
 
 def no_loss(states, actions, rewards, policy):
     return tensor(0.0, requires_grad=True)

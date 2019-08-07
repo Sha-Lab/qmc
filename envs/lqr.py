@@ -126,14 +126,17 @@ class LQR(gym.Env):
 
     # you need to input a stable control matrix K
     # only suppose independent action noise, need to input the covariance
-    def expected_cost(self, K, Sigma_a):
-        x0 = self.init_state
+    def expected_cost(self, K, Sigma_a, x0=None, T=None):
+        if x0 is None:
+            x0 = self.init_state
+        if T is None:
+            T = self.max_steps
         cost =  0.0
         m_list = [self.Q + K.T.dot(self.P).dot(K)]
         C = self.A + self.B @ K
-        for i in range(self.max_steps-1):
+        for i in range(T-1):
             m_list.append(C.T.dot(m_list[-1]).dot(C))
-        for t in range(self.max_steps):
+        for t in range(T):
             cost += x0.dot(m_list[t]).dot(x0) + np.trace(self.P @ Sigma_a)
             for i in range(t):
                 cost += np.trace(self.B.T @ m_list[t-1-i] @ self.B @ Sigma_a)
@@ -177,6 +180,7 @@ class LQR(gym.Env):
         self.state = next_state
         done = np.sum(self.state > self.lims) > 0
         done += np.sum(self.state < -self.lims) > 0
+        if done: reward -= 1000.0 # incur high ending penalty
         info = {}
         self.num_steps += 1
         if self.num_steps >= self.max_steps:
