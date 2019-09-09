@@ -485,7 +485,7 @@ def main(args=None):
     elif args.mode == 'seeds':
         running_seeds(args.save_fn, exp_f, argparse.Namespace(**vars(args)), args.n_seeds)
     elif args.mode == 'collect':
-        assert args.task == 'learn'
+        assert args.task in ['learn', 'learn_PGPE']
         success_f = lambda result: len(result[1]['out']) == 0
         collect_seeds(args.save_fn, exp_f, args, success_f=success_f, n_seeds=args.n_seeds, max_seed=args.max_seed)
 

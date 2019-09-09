@@ -174,6 +174,26 @@ def search_vpg_ant_trajs():
         return variant
     generate_args('exps/search_vpg_ant_trajs', args, kwargs, variants, post_variant=post_variant, shuffle=False)
 
+@cmd()
+def search_PGPE():
+    variants = {
+        '--n_trajs': [100, 300, 500, 700, 1000, 1500],
+        '--xu_dim': [(20, 12), (10, 8), (5, 5)],
+        '--init_scale': [1.0, 3.0, 5.0],
+        '-H': [5, 10, 15],
+    }
+    args = []
+    kwargs = {
+        '--task': 'learn_PGPE',
+        '--mode': 'collect',
+        '--n_iters': 2000,
+    }
+    def post_variant(variant):
+        variant['--save_fn'] = 'data/search_PGPE/{}_{}-{}-{}'.format(variant['--xu_dim'][0], variant['--xu_dim'][1], variant['--init_scale'], variant['-H'])
+        return variant
+    generate_args('exps/search_PGPE', args, kwargs, variants, post_variant=post_variant, shuffle=False)
+
+
 if __name__ == "__main__":
     with launch_ipdb_on_exception():
         cmd_run()
