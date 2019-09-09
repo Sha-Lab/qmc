@@ -193,6 +193,21 @@ def search_PGPE():
         return variant
     generate_args('exps/search_PGPE', args, kwargs, variants, post_variant=post_variant, shuffle=False)
 
+@cmd()
+def search_arqmc():
+    args = []
+    kwargs = {
+        '--task': 'lqr',
+        '--n_runs': 20,
+    }
+    variants = {
+        '--n_trajs': [2 ** i for i in (5, 7, 9)],
+        '--horizon': [5, 10, 20, 40],
+    }
+    def post_variant(variant):
+        variant['--exp_name'] = 'search_arqmc/{}-{}'.format(variant['--n_trajs'], variant['--horizon'])
+        return variant
+    generate_args('exps/search_arqmc', args, kwargs, variants, post_variant=post_variant, shuffle=False)
 
 if __name__ == "__main__":
     with launch_ipdb_on_exception():

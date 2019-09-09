@@ -18,6 +18,7 @@ from inspect import signature
 from pathlib import Path
 from termcolor import colored
 from scipy.stats import norm
+from contextlib import contextmanager
 
 from rqmc_distributions import dist_rqmc
 
@@ -25,6 +26,77 @@ class Config:
     DEVICE = torch.device('cpu')
     SEED_RANGE = 100000000
     DEBUG = False # for debug usage
+
+class Logger:
+    def __init__(self):
+        self.logger = dict()
+        self.default_logger = None
+
+    def reset(self):
+        for name in self.logger: # may not be save
+            self.close_logger(name)
+        self.logger = dict()
+        self.default_logger = None
+
+    def get_logger(self, name, outs=[sys.stdout]):
+        self.logger[name] = outs
+
+    def close_logger(self, name, exclude=[sys.stdout]):
+        if name not in self.logger: return
+        for f in self.logger[name]:
+            if f in exclude: continue
+            f.close()
+
+    def set_default(self, name):
+         self.default_logger = name
+
+    @contextmanager
+    def as_default(self, name):
+        pre_logger = self.default_logger
+        self.default_logger = name
+        try:
+            yield self
+        finally:
+            self.default_logger = pre_logger
+
+    def log(self, info, name=None, outs=None):
+        if name is None:
+            name = self.default_logger
+        if name is not None: outs = self.logger[name]
+        for out in outs:
+            #print >> out, info # py2.7 only
+            print(info, file=out)
+            out.flush()
+
+    # passed in a list of info
+    def logs(self, infos, name=None, outs=None):
+        if name is None:
+            name = self.default_logger
+        if name is not None: outs = self.logger[name]
+        for info in infos:
+            for out in outs:
+                #print >> out, info
+                print(info, file=out)
+                out.flush()
+
+    # these use sys.stdout
+    def info(self, msg):
+        print(msg)
+
+    def prog(self, msg):
+        cprint(msg, 'green')
+
+    def error(self, msg):
+        cprint(msg, 'red')
+
+    def debug(self, msg):
+        cprint(msg, 'blue')
+
+    def log_experiment_info(self, args, name=None, outs=None):
+        self.log(get_git_sha(), name=name, outs=outs)
+        self.log(args, name=name, outs=outs)
+
+logger = Logger()
 
 def select_device(gpu_id=-1):
     if gpu_id >= 0:
