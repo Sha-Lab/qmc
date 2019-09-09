@@ -15,4 +15,3 @@ class Brownian(gym.Env):
     def step(self, action):
         self.x += self.dt * action
         return self.x, np.linalg.norm(self.x), False, {}
-    

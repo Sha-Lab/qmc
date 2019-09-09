@@ -16,9 +16,10 @@ class Uniform_RQMC(Distribution):
     arg_constraints = {'low': constraints.dependent, 'high': constraints.dependent}
     has_rsample = True
 
-    def __init__(self, low, high, dim=1, validate_args=None):
+    def __init__(self, low, high, dim=1, scrambled=1, validate_args=None):
         self.low, self.high = broadcast_all(low, high)
         self.dim = dim
+        self.scrambled = scrambled
 
         if isinstance(low, Number) and isinstance(high, Number):
             batch_shape = torch.Size()
@@ -38,7 +39,7 @@ class Uniform_RQMC(Distribution):
         n_samples = int(torch.prod(torch.tensor(shape)))
         if n_samples == 1:
             print("Warning: RQMC sample size should be greater than 1.")
-        rand = qmc.sobol(N=n_samples, dim=self.dim, scrambled=1) # scrambled=0
+        rand = qmc.sobol(N=n_samples, dim=self.dim, scrambled=self.scrambled) # scrambled=0
         #rand = rqmc_py.random_sequence_rqmc(size_mv=self.dim, i=0, n=n_samples)
         # rand = qmc_py.sobol_sequence(N=n_samples, DIMEN=self.dim, IFLAG=1,
         #                              iSEED=np.random.randint(10**5))  # .transpose()
