@@ -17,7 +17,7 @@ def parse_args(args=None):
     parser.add_argument('--horizon', type=int, default=10)
     parser.add_argument('--n_runs', type=int, default=10)
     parser.add_argument('--algos', type=str, nargs='+', default=['mc', 'rqmc', 'arqmc'])
-    parser.add_argument('--no_swap', aciton='store_true')
+    parser.add_argument('--no_swap', action='store_true')
     parser.add_argument('--exp_name', type=str, default=None)
     return parser.parse_args(args)
 
