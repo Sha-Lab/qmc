@@ -14,6 +14,10 @@ class Uniform_RQMC:
             self.bias = np.random.rand(dim)
         self.seed = 1 
 
+    def reset(self):
+        if scrambled:
+            self.bias = np.random.rand(dim)
+
     def sample(self, size):
         res = []
         for _ in range(size):
@@ -29,4 +33,3 @@ class Normal_RQMC:
 
     def sample(self, size):
         return norm.ppf(self.sampler.sample(size))
-

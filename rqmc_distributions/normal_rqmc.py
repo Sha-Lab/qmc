@@ -19,14 +19,14 @@ class Normal_RQMC(Distribution):
     support = constraints.real
     has_rsample = True
 
-    def __init__(self, loc, scale, validate_args=None):
+    def __init__(self, loc, scale, scrambled=1, validate_args=None):
         # print('normal_rqmc init')
         # TODO: dim should be one-dimensional array! How to deal with different shapes? (especially dim-less)
         dim = loc.shape[0]
 
         # init rqmc uniform random variable
         # print('dim ' + str(dim))
-        self.u_rqmc = Uniform_RQMC(0, 1, dim)
+        self.u_rqmc = Uniform_RQMC(0, 1, dim, scrambled=scrambled)
         # distribution variables
         self.loc, self.scale = broadcast_all(loc, scale)
 
