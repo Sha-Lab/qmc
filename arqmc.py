@@ -1,5 +1,6 @@
 import sys
 import argparse
+import random
 import torch
 import numpy as np
 from pathlib import Path
@@ -15,9 +16,9 @@ def parse_args(args=None):
     parser.add_argument('--task', choices=['brownian', 'lqr'], default='lqr')
     parser.add_argument('--n_trajs', type=int, default=2 ** 5)
     parser.add_argument('--horizon', type=int, default=10)
-    parser.add_argument('--n_runs', type=int, default=10)
+    parser.add_argument('--n_runs', type=int, default=20)
     parser.add_argument('--algos', type=str, nargs='+', default=['mc', 'rqmc', 'arqmc'])
-    parser.add_argument('--no_swap', action='store_true')
+    parser.add_argument('--random_swap', action='store_true')
     parser.add_argument('--exp_name', type=str, default=None)
     return parser.parse_args(args)
 
@@ -27,50 +28,66 @@ def brownian(args):
     env = Brownian()
 
     # mc
-    returns = []
-    for i in range(args.n_trajs):
-        rs = 0.0
-        env.reset()
-        for j in range(args.horizon):
-            _, r, _, _ = env.step(np.random.randn())
-            rs += r
-        returns.append(rs)
-    res = np.mean(returns)
-    print('mc: {}, error: {}'.format(res, np.abs(ground_truth - res)))
+    if 'mc' in args.algos:
+        errors = []
+        for _ in range(args.n_runs):
+            returns = []
+            for i in range(args.n_trajs):
+                rs = 0.0
+                env.reset()
+                for j in range(args.horizon):
+                    _, r, _, _ = env.step(np.random.randn())
+                    rs += r
+                returns.append(rs)
+            res = np.mean(returns)
+            errors.append(np.abs(ground_truth - res))
+        print('mc: {}, error: {}'.format(res, np.mean(errors)))
 
     # rqmc
-    returns = []
-    
-    loc = torch.zeros(args.horizon)
-    scale = torch.ones(args.horizon)
-    actions = Normal_RQMC(loc, scale, scrambled=True).sample(torch.Size([args.n_trajs])).data.numpy()
-    for i in range(args.n_trajs):
-        rs = 0.0
-        env.reset()
-        for j in range(args.horizon):
-            _, r, _, _ = env.step(actions[i][j])
-            rs += r
-        returns.append(rs)
-    res = np.mean(returns)
-    print('rqmc: {}, error: {}'.format(res, np.abs(ground_truth - res)))
+    if 'rqmc' in args.algos:
+        errors = []
+        for _ in range(args.n_runs):
+            returns = [] 
+            loc = torch.zeros(args.horizon)
+            scale = torch.ones(args.horizon)
+            actions = Normal_RQMC(loc, scale, scrambled=True).sample(torch.Size([args.n_trajs])).data.numpy()
+            for i in range(args.n_trajs):
+                rs = 0.0
+                env.reset()
+                for j in range(args.horizon):
+                    _, r, _, _ = env.step(actions[i][j])
+                    rs += r
+                returns.append(rs)
+            res = np.mean(returns)
+            errors.append(np.abs(ground_truth - res))
+        print('rqmc: {}, error: {}'.format(res, np.mean(errors)))
 
     # array rqmc
-    returns = 0.0
-    loc = torch.zeros(1)
-    scale = torch.ones(1)
-    noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()
-    envs = [Brownian() for _ in range(args.n_trajs)]
-    states = [env.reset() for env in envs]
-    for j in range(args.horizon):
-        envs, states = zip(*sorted(zip(envs, states), key=lambda x: x[1]))
-        states = list(states)
-        bias = np.random.rand()
-        for i, env in enumerate(envs):
-            state, r, _, _ = env.step(norm.ppf((noises[i] + bias) % 1.0))
-            states[i] = state
-            returns += r
-    res = returns / args.n_trajs
-    print('array rqmc: {}, error: {}'.format(res, np.abs(ground_truth - res)))
+    if 'arqmc' in args.algos:
+        errors = []
+        for _ in range(args.n_runs):
+            returns = 0.0
+            loc = torch.zeros(1)
+            scale = torch.ones(1)
+            noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()
+            envs = [Brownian() for _ in range(args.n_trajs)]
+            states = [env.reset() for env in envs]
+            for j in range(args.horizon):
+                if args.random_swap:
+                    pairs = list(zip(envs, states))
+                    random.shuffle(pairs)
+                    env, states = zip(*pairs)
+                else:
+                    envs, states = zip(*sorted(zip(envs, states), key=lambda x: x[1]))
+                states = list(states)
+                bias = np.random.rand()
+                for i, env in enumerate(envs):
+                    state, r, _, _ = env.step(norm.ppf((noises[i] + bias) % 1.0))
+                    states[i] = state
+                    returns += r
+            res = returns / args.n_trajs
+            errors.append(np.abs(ground_truth - res))
+        print('array rqmc: {}, error: {}'.format(res, np.mean(errors)))
 
 def lqr(args):
     if args.exp_name is not None:
@@ -144,7 +161,11 @@ def lqr(args):
             returns = 0.0
             states = [env.reset() for env in envs]
             for j in range(args.horizon):
-                if not args.no_swap:
+                if args.random_swap:
+                    pairs = list(zip(envs, states))
+                    random.shuffle(pairs)
+                    env, states = zip(*pairs)
+                else:
                     envs, states = zip(*sorted(zip(envs, states), key=lambda x: env.expected_cost(K, sigma_a, x0=x[1])))
                 states = list(states)
                 bias = np.random.rand(env.M)

@@ -199,10 +199,11 @@ def search_arqmc():
     kwargs = {
         '--task': 'lqr',
         '--n_runs': 20,
+        '--no_swap':
     }
     variants = {
         '--n_trajs': [2 ** i for i in (5, 7, 9)],
-        '--horizon': [60, 80, 100],
+        '--horizon': [20, 40, 60, 80],
     }
     def post_variant(variant):
         variant['--exp_name'] = 'search_arqmc/{}-{}'.format(variant['--n_trajs'], variant['--horizon'])
