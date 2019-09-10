@@ -10,6 +10,9 @@ from rqmc_distributions import Normal_RQMC, Uniform_RQMC
 from scipy.stats import norm
 from utils import logger
 
+# TODO:
+# try arqmc without full trajectory
+
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--task', choices=['brownian', 'lqr'], default='lqr')
@@ -95,6 +98,7 @@ def lqr(args):
 
     env = get_env()
     K = env.optimal_controller()
+    #K = np.random.randn(env.M, env.N)
     sigma_a = np.diag(np.ones(env.M))
     ground_truth = -env.expected_cost(K, sigma_a)
 
