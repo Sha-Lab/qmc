@@ -202,7 +202,7 @@ def search_arqmc():
     }
     variants = {
         '--n_trajs': [2 ** i for i in (5, 7, 9)],
-        '--horizon': [5, 10, 20, 40],
+        '--horizon': [60, 80, 100],
     }
     def post_variant(variant):
         variant['--exp_name'] = 'search_arqmc/{}-{}'.format(variant['--n_trajs'], variant['--horizon'])
