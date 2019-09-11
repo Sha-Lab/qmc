@@ -110,6 +110,7 @@ def lqr(args):
             A_norm=1.0,
             B_norm=1.0,
             Sigma_s_scale=0.0,
+            gamma=args.gamma,
         )
     env = get_env()
     K = env.optimal_controller()

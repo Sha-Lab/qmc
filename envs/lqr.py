@@ -71,6 +71,7 @@ class LQR(gym.Env):
         Sigma_s_kappa=1.0,
         Sigma_s_scale=1.0,
         random_init=False,
+        gamma=1.0,
         seed=0,
     ):
         super(LQR, self).__init__()
@@ -104,6 +105,7 @@ class LQR(gym.Env):
         else:
             self.Sigma_s = np.zeros((N, N))
             self.Sigma_s_L = np.zeros((N, N))
+        self.gamma = gamma
 
     def seed(self, seed=None):
         self.rng.seed(seed)
@@ -136,11 +138,14 @@ class LQR(gym.Env):
         C = self.A + self.B @ K
         for i in range(T-1):
             m_list.append(C.T.dot(m_list[-1]).dot(C))
+        discount = 1.0
         for t in range(T):
-            cost += x0.dot(m_list[t]).dot(x0) + np.trace(self.P @ Sigma_a)
+            cost_t = x0.dot(m_list[t]).dot(x0) + np.trace(self.P @ Sigma_a)
             for i in range(t):
-                cost += np.trace(self.B.T @ m_list[t-1-i] @ self.B @ Sigma_a)
-                cost += np.trace(m_list[t-1-i] @ self.Sigma_s) # environmental noise
+                cost_t += np.trace(self.B.T @ m_list[t-1-i] @ self.B @ Sigma_a)
+                cost_t += np.trace(m_list[t-1-i] @ self.Sigma_s) # environmental noise
+            cost += discount * cost_t
+            discount *= self.gamma
         return cost
 
     # expected state covariance at time t, used for expected policy gradient
@@ -183,6 +188,6 @@ class LQR(gym.Env):
         if done: reward -= 1000.0 # incur high ending penalty
         info = {}
         self.num_steps += 1
-        if self.num_steps >= self.max_steps:
+        if self.num_steps >= self.max_steps or np.random.rand() > self.gamma:
             done = True
         return next_state, reward, done, info

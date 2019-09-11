@@ -456,7 +456,7 @@ def scramble_points(points):
     return (points + np.random.randn(*points.shape)) % 1.0
 
 # sort f should take pair as input!
-# I have to save using monitor is very ugly...
+# I have to say using monitor is very ugly...
 class ArrayRQMCSampler:
     def __init__(self, env, n_envs, sort_f=None):
         envs = [copy.deepcopy(MonitorWrapper(env)) for _ in range(n_envs)]
@@ -568,3 +568,6 @@ def collect_seeds(save_fn, sample_f, sample_args, success_f, n_seeds=50, max_see
     with open(save_fn, 'wb') as f:
         dill.dump(results, f)
 
+### for arqmc
+class MCSampler:
+    def __init__(self, env, policy):
