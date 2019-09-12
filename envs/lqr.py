@@ -110,14 +110,14 @@ class LQR(gym.Env):
     def seed(self, seed=None):
         self.rng.seed(seed)
 
-    def optimal_controller(self): # does not depend on noise...
+    # does not depend on noise, optimal for infinite horizon
+    def optimal_controller(self):
         K = solve_discrete_are(self.A, self.B, self.Q, self.P)
         L = -np.linalg.inv(self.B.T @ K @ self.B + self.P) @ self.B.T @ K @ self.A
         return L
 
     def reset(self):
         self.num_steps = 0
-        #self.state = np.random.random(size=self.N) * self.lims # minus 1/2?
         if self.random_init:
             self.state = self.rng.randn(self.N)
             self.state /= np.linalg.norm(self.state)
@@ -126,30 +126,39 @@ class LQR(gym.Env):
             self.state = self.init_state
         return self.state
 
-    # you need to input a stable control matrix K
-    # only suppose independent action noise, need to input the covariance
-    def expected_cost(self, K, Sigma_a, x0=None, T=None):
-        if x0 is None:
-            x0 = self.init_state
+    # build a function that calculate expected cost, with initial state as input
+    def expected_cost_state_func(self, K, Sigma_a, T=None):
         if T is None:
             T = self.max_steps
-        cost =  0.0
+        const = 0.0
+        init_q = 0.0
         m_list = [self.Q + K.T.dot(self.P).dot(K)]
         C = self.A + self.B @ K
         for i in range(T-1):
             m_list.append(C.T.dot(m_list[-1]).dot(C))
         discount = 1.0
         for t in range(T):
-            cost_t = x0.dot(m_list[t]).dot(x0) + np.trace(self.P @ Sigma_a)
+            const_t = np.trace(self.P @ Sigma_a)
             for i in range(t):
-                cost_t += np.trace(self.B.T @ m_list[t-1-i] @ self.B @ Sigma_a)
-                cost_t += np.trace(m_list[t-1-i] @ self.Sigma_s) # environmental noise
-            cost += discount * cost_t
+                const_t += np.trace(self.B.T @ m_list[t-1-i] @ self.B @ Sigma_a)
+                const_t += np.trace(m_list[t-1-i] @ self.Sigma_s) # environmental noise
+            const += discount * const_t
+            init_q += discount * m_list[t]
             discount *= self.gamma
-        return cost
+        def f(x0=None):
+            if x0 is None:
+                x0 = self.init_state
+            return const + x0.dot(init_q).dot(x0)
+        return f
+
+    # you need to input a stable control matrix K
+    # only support independent action noise, need to input the covariance
+    def expected_cost(self, K, Sigma_a, x0=None, T=None):
+        return self.expected_cost_state_func(K, Sigma, T=T)(x0)
 
     # expected state covariance at time t, used for expected policy gradient
     def expected_state_cov(self, t, K, Sigma_a):
+        assert self.gamma == 1.0
         abk = self.A + self.B @ K
         abk_list = [np.identity(self.N)]
         for _ in range(t):
@@ -162,6 +171,7 @@ class LQR(gym.Env):
         return cov
 
     def expected_policy_gradient(self, K, Sigma_a):
+        assert self.gamma == 1.0
         assert not self.random_init, 'policy gradient for random init has not been implemented'
         conv = [self.expected_state_cov(t, K, Sigma_a) for t in range(self.max_steps)]
         abk = self.A + self.B @ K

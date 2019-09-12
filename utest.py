@@ -24,49 +24,18 @@ class TestDistribution(unittest.TestCase):
         dist = Normal_RQMC(5)
         print(dist.sample(10))
 
-class TestArray(unittest.TestCase):
-    def test(self):
-        from envs import Brownian
-        from models import NoisePolicy
-        from utils import ArrayRQMCSampler, sort_by_norm, sort_by_val, SortableWrapper, HorizonWrapper, rollout
-        from ipdb import launch_ipdb_on_exception
-
-        n_trajs = 1024
-        horizon = 20
-        with launch_ipdb_on_exception():
-            array_costs = []
-            array_means = []
-            env = HorizonWrapper(Brownian(), horizon)
-            policy = NoisePolicy()
-            data = ArrayRQMCSampler(SortableWrapper(env), n_envs=n_trajs, sort_f=sort_by_val).sample(policy, 1)
-            for traj in data:
-                _, _, rewards = traj
-                rewards = np.asarray(rewards)
-                array_costs.append(rewards[-1])
-                array_means.append(np.mean(array_costs))
-            array_errors = np.abs(array_means)
-            print(array_errors[-1])
-            
-            mc_costs = [] # individual
-            mc_means = [] # cumulative
-            for i in tqdm(range(n_trajs), 'mc'):
-                noises = np.random.randn(horizon, 1)
-                _, _, rewards = rollout(env, policy, noises)
-                mc_costs.append(rewards[-1])
-                mc_means.append(np.mean(mc_costs))
-            mc_errors = np.abs(mc_means)
-            print(mc_errors[-1])
-
-            '''
-            data = pd.DataFrame({
-                'name': 'array',
-                'x': np.arange(len(array_errors)),
-                'error': array_errors,
-            })
-            plot = sns.lineplot(x='x', y='error', hue='name', data=data)
-            plot.set(yscale='log')
-            plt.show()
-            '''
+class TestLQR(unittest.TestCase):
+    def test_expected_cost(self):
+        env = LQR(max_steps=100)
+        K = env.optimal_controller()
+        Sigma_a = np.diag(np.ones(5))
+        cost_gt = env.expected_cost(K, Sigma_a)
+        cost_f = env.expected_cost_state_func(K, Sigma_a)()
+        print(cost_gt - cost_f)
+        x0 = np.random.rand(env.N)
+        cost_gt = env.expected_cost(K, Sigma_a, x0=x0)
+        cost_f = env.expected_cost_state_func(K, Sigma_a)(x0)
+        print(cost_gt - cost_f)
 
 if __name__ == "__main__":
     unittest.main()
