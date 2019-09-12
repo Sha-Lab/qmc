@@ -432,7 +432,14 @@ def collect_seeds(save_fn, sample_f, sample_args, success_f, n_seeds=50, max_see
 # only support LQR
 def sort_by_optimal_value(env):
     K = env.optimal_controller()
+    sigma_a = np.diag(np.ones(env.M))
     def f(args):
         env, state, done, data = args
-        return np.inf if done else env.expected_cost(K, np.diag(np.ones(env.M)), x0=state)
+        return np.inf if done else env.expected_cost(K, sigma_a, x0=state)
+    return f
+
+def sort_by_norm(env):
+    def f(args):
+        env, state, done, data = args
+        return np.inf if done else np.linalg.norm(state)
     return f

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from envs import *
 from models import GaussianPolicy, get_mlp
-from utils import set_seed, rollout, MPSampler, SeqRunner, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gradient, ArrayRQMCSampler, sort_by_optimal_value
+from utils import set_seed, rollout, MPSampler, SeqRunner, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gradient, ArrayRQMCSampler, sort_by_optimal_value, sort_by_norm
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
@@ -29,7 +29,7 @@ def parse_args(args):
         '--task',
         choices=['cost', 'grad', 'learn'],
         default='learn')
-    parser.add_argument('--env', choices=['lqr', 'WIP', 'IP', 'cartpole', 'ant'], default='lqr')
+    parser.add_argument('--env', choices=['lqr', 'cartpole', 'ant'], default='lqr')
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
     parser.add_argument('--init_scale', type=float, default=3.0)
     parser.add_argument('--PQ_kappa', type=float, default=3.0)
@@ -51,7 +51,7 @@ def parse_args(args):
     parser.add_argument('--save_fn', type=str, default=None)
     return parser.parse_args(args)
 
-LQR_ENVS = ['lqr', 'WIP', 'IP']
+LQR_ENVS = ['lqr']
 
 def get_env(args):
     if args.env == 'lqr':
@@ -67,18 +67,6 @@ def get_env(args):
             B_norm=args.AB_norm,
             Sigma_s_scale=args.noise,
             #random_init=True,
-        )
-    elif args.env == 'WIP':
-        env = WIP(
-            init_scale=args.init_scale,
-            max_steps=args.H,
-            Sigma_s_scale=args.noise,
-        )
-    elif args.env == 'IP':
-        env = InvertedPendulum(
-            init_scale=args.init_scale,
-            max_steps=args.H,
-            Sigma_s_scale=args.noise,
         )
     elif args.env == 'cartpole':
         env = CartPoleContinuousEnv()
@@ -119,7 +107,7 @@ def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
         loc = torch.zeros(action_dim)
         scale = torch.ones(action_dim)
         noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([n_trajs])).data.numpy().reshape(n_trajs, 1, action_dim)
-        noises = norm.ppf((noises + np.random.rand(1, n_steps, 1)) % 1.0)
+        noises = norm.ppf((noises + np.random.rand(1, n_steps, action_dim)) % 1.0)
     else:
         raise Exception('unknown rqmc type')
     return noises
@@ -131,7 +119,7 @@ def compare_cost(args):
         #N=20,
         #M=12,
         init_scale=1.0,
-        max_steps=10, # 20
+        max_steps=10, # 10, 20
         Sigma_s_kappa=1.0,
         Q_kappa=1.0,
         P_kappa=1.0,
@@ -158,7 +146,7 @@ def compare_cost(args):
     rqmc_means = []
     rqmc_noises = get_rqmc_noises(args.n_trajs, env.max_steps, env.M, 'trajwise')
     for i in tqdm(range(args.n_trajs), 'rqmc'):
-        _, _, rewards, _, _ = rollout(env, policy, rqmc_noises[i].reshape(env.max_steps, env.M))
+        _, _, rewards, _, _ = rollout(env, policy, rqmc_noises[i])
         rqmc_costs.append(-rewards.sum())
         rqmc_means.append(np.mean(rqmc_costs))
 
@@ -166,7 +154,7 @@ def compare_cost(args):
     arqmc_costs = []
     arqmc_means = []
     arqmc_noises = get_rqmc_noises(args.n_trajs, env.max_steps, env.M, 'array')
-    data = ArrayRQMCSampler(env, args.n_trajs, sort_by_optimal_value(env)).sample(policy, arqmc_noises)
+    data = ArrayRQMCSampler(env, args.n_trajs, sort_by_norm(env)).sample(policy, arqmc_noises)
     for traj in data:
         rewards = np.asarray(traj['rewards'])
         arqmc_costs.append(-rewards.sum())
