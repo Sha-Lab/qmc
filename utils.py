@@ -255,12 +255,6 @@ def rollout(env, policy, noises, deterministic=False):
         cur_step += 1
     return np.asarray(states), np.asarray(actions), np.asarray(rewards), np.asarray(next_states), np.asarray(terminals)
   
-def mse(a, b):
-    return ((a - b) ** 2).mean()
-
-def cummean(x, axis=0):
-    return np.cumsum(x, axis=axis) / np.cumsum(np.ones_like(x), axis=axis)
-
 # sampler helper function
 def sample_init(env, init_seeds):
     global sample_env
@@ -334,161 +328,38 @@ class EnvWrapper(gym.Wrapper):
     def last(self):
         return LastWrapper(self)
 
-# use state as the value to sort
-class SortableWrapper(EnvWrapper):
-    def __init__(self, env):
-        super().__init__(env)
-
-    def reset(self):
-        self.val = self.env.reset()
-        return self.val
-
-    def step(self, action):
-        next_state, reward, done, info = self.env.step(action)
-        self.val = next_state
-        return next_state, reward, done, info
-
-class MonitorWrapper(EnvWrapper):
-    def __init__(self, env):
-        super().__init__(env)
-        self.traj = None
-        self.monitor = False
-
-    def start_monitor(self, trajs=None):
-        assert not self.monitor, 'already start'
-        self.trajs = trajs
-        self.monitor = True
-
-    def close_monitor(self):
-        assert self.monitor, 'already close'
-        self.traj = None
-        self.monitor = False
-
-    def reset(self):
-        if self.monitor:
-            if self.traj is not None and self.trajs is not None:
-                self.trajs.append(self.traj)
-            self.traj = dict(states=[], actions=[], rewards=[])
-        self.cur_state = self.env.reset()
-        return self.cur_state
-
-    def step(self, action):
-        next_state, reward, done, info = self.env.step(action)
-        if self.monitor:
-            self.traj['states'].append(self.cur_state)
-            self.traj['actions'].append(action)
-            self.traj['rewards'].append(reward)
-        self.cur_state = next_state
-        return next_state, reward, done, info
-
-    def get_traj(self):
-        return self.traj
-
-class VecEnv:
-    def __init__(self, envs):
-        self.envs = envs
-        self.n_envs = len(self.envs)
-
-    def step(self, actions):
-        data = []
-        for i in range(self.n_envs):
-            obs, rew, done, info = self.envs[i].step(actions[i])
-            if done:
-                obs = self.envs[i].reset()
-            data.append([obs, rew, done, info])
-        obs, rew, done, info = zip(*data)
-        return obs, np.asarray(rew), np.asarray(done), info
-
-    def reset(self):
-        return [env.reset() for env in self.envs]
-
-class VecSampler:
-    def __init__(self, env, n_envs=1):
+# sort_f takes (env, state, done, data)
+class ArrayRQMCSampler:
+    def __init__(self, env, n_envs, sort_f):
         envs = [copy.deepcopy(env) for _ in range(n_envs)]
         for env, seed in zip(envs, np.random.randint(Config.SEED_RANGE, size=len(envs))):
             env.seed(int(seed))
-        self.env = VecEnv(envs)
-        self.n_envs = n_envs
-        
-    def sample(self, policy, noises): # might cost problems
-        data = []
-        cur_rollout = [dict(states=[], actions=[], rewards=[]) for _ in range(self.n_envs)]
-        noise_indices = list([(i if i < len(noises) else -1) for i in range(self.n_envs)])
-        idx = self.n_envs
-        states = self.env.reset() # compare to seqrunner, call one more reset in each sample
-        cur_t = [0 for _ in range(self.n_envs)]
-        while True:
-            actions = policy(states, noises[noise_indices, cur_t])
-            next_states, rewards, terminals, infos = self.env.step(actions)
-            for i, step in enumerate(zip(states, actions, rewards, terminals)):
-                state, action, reward, terminal = step
-                cur_rollout[i]['states'].append(state)
-                cur_rollout[i]['actions'].append(action)
-                cur_rollout[i]['rewards'].append(reward)
-                cur_t[i] += 1
-                if terminal:
-                    data.append([cur_rollout[i][k] for k in ['states', 'actions', 'rewards']])
-                    cur_rollout[i] = dict(states=[], actions=[], rewards=[])
-                    noise_indices[i] = idx if idx < len(noises) else -1
-                    cur_t[i] = 0
-                    idx += 1
-                if len(data) == len(noises): break
-            if len(data) == len(noises): break
-            states = next_states
-        return data
-
-def sort_by_norm(envs):
-    return sorted(envs, key=lambda env: np.linalg.norm(env.last.val))
-
-def sort_by_val(envs):
-    return sorted(envs, key=lambda env: env.last.val)
-
-def sort_by_optimal_value(envs):
-    K = envs[0].last.optimal_controller()
-    Sigma_a = np.eye(envs[0].last.M)
-    return sorted(envs, key=lambda env: env.last.expected_cost(K, Sigma_a, x0=env.last.val, T=env.last.max_steps-env.last.num_steps))
-
-def sort_envs(envs, sort_f, stopped):
-    return sort_f([env for env, done in zip(envs, stopped) if not done]) + \
-        [env for env, done in zip(envs, stopped) if done]
-
-def scramble_points(points):
-    return (points + np.random.randn(*points.shape)) % 1.0
-
-# sort f should take pair as input!
-# I have to say using monitor is very ugly...
-class ArrayRQMCSampler:
-    def __init__(self, env, n_envs, sort_f=None):
-        envs = [copy.deepcopy(MonitorWrapper(env)) for _ in range(n_envs)]
-        for env, seed in zip(envs, np.random.randint(Config.SEED_RANGE, size=len(envs))):
-            env.seed(int(seed))
-        self.env = VecEnv(envs)
+        self.envs = envs
         self.n_envs = n_envs
         self.sort_f = sort_f
-        # sobol does not need to sort the first dimension
-        self.points = dist_rqmc.Uniform_RQMC(env.action_space.shape[0]).sample(n_envs) 
         
-    def sample(self, policy, times):
-        data = []
-        for _ in range(times):
-            rollouts = []
-            for env in self.env.envs: env.start_monitor(rollouts)
-            states = self.env.reset()
-            terminals = [False for _ in range(self.n_envs)]
-            stopped = np.zeros(len(states), dtype=np.bool) # this should also be sorted...
-            while not np.all(stopped):
-                self.env.envs = sort_envs(self.env.envs, self.sort_f, stopped)
-                noises = norm.ppf(scramble_points(self.points))
-                actions = policy(states, noises)
-                next_states, rewards, terminals, _ = self.env.step(actions)
-                for i, terminal in enumerate(terminals):
-                    if stopped[i]: continue
-                    if terminal:
-                        self.env.envs[i].close_monitor()
-                        stopped[i] = True
-                states = next_states
-            data.extend([[rollout[k] for k in ['states', 'actions', 'rewards']] for rollout in rollouts])
-        return data 
+    def sample(self, policy, noises):
+        assert noises.shape[0] == self.n_envs and noises.shape[2] == self.envs[0].action_space.shape[0]
+        n_trajs, horizon, action_dim = noises.shape
+        data = [{'states': [], 'actions': [], 'rewards': []} for _ in range(n_trajs)]
+        envs = list(self.envs) # shallow copy, copy the order only
+        states = [env.reset() for env in self.envs]
+        dones = [False for _ in range(n_trajs)]
+        for j in range(horizon):
+            if np.all(dones): break
+            envs, states, dones, data = zip(*sorted(zip(envs, states, dones, data), key=self.sort_f))
+            #lambda env, state, done, data: np.inf if done else env.expected_cost(K, sigma_a, x0=x[1])))
+            states, dones, data = list(states), list(dones), list(data)
+            for i, env in enumerate(envs):
+                if dones[i]: break
+                action = policy(states[i], noises[i][j])
+                state, r, done, _ = env.step(action)
+                states[i] = state
+                dones[i] = done
+                data[i]['states'].append(state)
+                data[i]['actions'].append(action)
+                data[i]['rewards'].append(r)
+        return data
 
 class SeqRunner:
     def __init__(self, env, deterministic=False):
@@ -516,18 +387,8 @@ def variance_reduced_loss(states, actions, rewards, policy):
     returns = rewards[::-1].cumsum()[::-1].copy()
     return (log_probs * tensor(returns)).sum()
 
-def PGPE_loss(rewards, policy, noises, critic=None):
-    returns = rewards.sum(-1)
-    if critic is not None: returns = returns - critic.avg
-    noises = policy.reshape_n(tensor(noises))
-    log_probs = policy.distribution().log_prob((policy.mean + noises * policy.std).detach()).sum(-1)
-    return (log_probs * tensor(rewards).sum(-1)).sum()
-
 def no_loss(states, actions, rewards, policy):
     return tensor(0.0, requires_grad=True)
-
-def critic_loss(states, returns, critic):
-    return F.mse_loss(critic(tensor(states)).squeeze(1), tensor(returns))
 
 # this is a tricky function, since it will affect the gradient of the policy
 def get_gradient(states, actions, rewards, policy, loss_fn):
@@ -568,6 +429,10 @@ def collect_seeds(save_fn, sample_f, sample_args, success_f, n_seeds=50, max_see
     with open(save_fn, 'wb') as f:
         dill.dump(results, f)
 
-### for arqmc
-class MCSampler:
-    def __init__(self, env, policy):
+# only support LQR
+def sort_by_optimal_value(env):
+    K = env.optimal_controller()
+    def f(args):
+        env, state, done, data = args
+        return np.inf if done else env.expected_cost(K, np.diag(np.ones(env.M)), x0=state)
+    return f

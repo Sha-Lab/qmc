@@ -35,7 +35,6 @@ class GaussianPolicy(Policy):
         action_dim,
         mean_network,
         learn_std=True,
-        #gate_output=True,
         gate_output=False,
     ):
         super().__init__()

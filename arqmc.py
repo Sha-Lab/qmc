@@ -9,6 +9,7 @@ from envs import Brownian, LQR
 #from rqmc_distributions.dist_rqmc import Uniform_RQMC, Normal_RQMC
 from rqmc_distributions import Normal_RQMC, Uniform_RQMC
 from scipy.stats import norm
+from models import GaussianPolicy
 from utils import logger
 
 # TODO:
@@ -16,7 +17,8 @@ from utils import logger
 
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--task', choices=['brownian', 'lqr'], default='lqr')
+    #parser.add_argument('--task', choices=['estimate_cost', 'learn'], default='estimate_cost')
+    parser.add_argument('--env', choices=['brownian', 'lqr'], default='lqr')
     parser.add_argument('--n_trajs', type=int, default=2 ** 5)
     parser.add_argument('--horizon', type=int, default=10)
     parser.add_argument('--n_runs', type=int, default=20)
@@ -25,6 +27,33 @@ def parse_args(args=None):
     parser.add_argument('--exp_name', type=str, default=None)
     return parser.parse_args(args)
 
+### tasks ### (estimate cost, learn)
+
+### envs ### (see args.env)
+
+### sampler ###
+class MCSampler:
+    def __init__(self, env):
+        self.env = env
+
+    def sample(self, policy, n_trajs):
+        data = {'states': [], 'rewards': [], 'dones': []}
+        for i in range(n_trajs):
+            states = []
+            rewards = []
+            dones = []
+            done = False
+            state = self.env.reset()
+            while not done:
+                state, r, done, _ = env.step(policy(state, np.random.randn(self.env.action_space.shape[0])))
+                states.append(state)
+                rewards.append(r)
+                dones.append(done)
+            data['states'].append(states)
+            data['rewards'].append(rewards)
+            data['dones'].append(dones)
+        return data
+        
 def brownian(args):
     ground_truth = 0.2 / np.sqrt(2 * np.pi) * np.sum(np.sqrt(np.arange(1, args.horizon + 1)) * (np.cumprod(args.gamma * np.ones(args.horizon))/ args.gamma))
     env = Brownian(gamma=args.gamma)
@@ -157,8 +186,8 @@ def lqr(args):
     if 'arqmc' in args.algos:
         errors = []
         for _ in range(args.n_runs):
-            loc = torch.zeros(1)
-            scale = torch.ones(1)
+            loc = torch.zeros(env.M)
+            scale = torch.ones(env.M)
             noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()
             envs = [get_env() for _ in range(args.n_trajs)]
             states = [env.reset() for env in envs]
@@ -179,34 +208,11 @@ def lqr(args):
             errors.append(np.abs(ground_truth - np.mean(returns)))
         logger.log('array rqmc error: {}'.format(np.mean(errors)), name='out')
 
-        '''
-        loc = torch.zeros(env.M)
-        scale = torch.ones(env.M)
-        noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()
-        envs = [get_env() for _ in range(args.n_trajs)]
-        errors = []
-        for _ in range(args.n_runs):
-            returns = 0.0
-            states = [env.reset() for env in envs]
-            for j in range(args.horizon):
-                envs, states = zip(*sorted(zip(envs, states), key=lambda x: env.expected_cost(K, sigma_a, x0=x[1])))
-                states = list(states)
-                bias = np.random.rand(env.M)
-                for i, env in enumerate(envs):
-                    noise = norm.ppf((noises[i] + bias) % 1.0)
-                    state, r, _, _ = env.step(get_action(states[i], K, noise))
-                    states[i] = state
-                    returns += r
-            res = returns / args.n_trajs
-            errors.append(np.abs(ground_truth - res))
-        logger.log('array rqmc error: {}'.format(np.mean(errors)), name='out')
-        '''
-
 def main(args=None):
     args = parse_args(args)
-    if args.task == 'brownian':
+    if args.env == 'brownian':
         brownian(args)
-    elif args.task == 'lqr':
+    elif args.env == 'lqr':
         lqr(args)
     else:
         raise Exception('unknown exp type')
