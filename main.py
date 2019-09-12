@@ -154,7 +154,9 @@ def compare_cost(args):
     arqmc_costs = []
     arqmc_means = []
     arqmc_noises = get_rqmc_noises(args.n_trajs, env.max_steps, env.M, 'array')
-    data = ArrayRQMCSampler(env, args.n_trajs, sort_by_norm(env)).sample(policy, arqmc_noises)
+    #sort_f = sort_by_norm(env)
+    sort_f = sort_by_optimal_value(env)
+    data = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f).sample(policy, arqmc_noises)
     for traj in data:
         rewards = np.asarray(traj['rewards'])
         arqmc_costs.append(-rewards.sum())
