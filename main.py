@@ -119,7 +119,7 @@ def compare_cost(args):
         #N=20,
         #M=12,
         init_scale=1.0,
-        max_steps=10, # 10, 20
+        max_steps=args.H, # 10, 20
         Sigma_s_kappa=1.0,
         Q_kappa=1.0,
         P_kappa=1.0,
