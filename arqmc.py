@@ -2,6 +2,7 @@ import sys
 import argparse
 import random
 import torch
+import chaospy
 import numpy as np
 from pathlib import Path
 
@@ -82,6 +83,9 @@ def brownian(args):
             loc = torch.zeros(args.horizon)
             scale = torch.ones(args.horizon)
             actions = Normal_RQMC(loc, scale, scrambled=True).sample(torch.Size([args.n_trajs])).data.numpy()
+            #actions = (chaospy.distributions.sampler.sequences.korobov.create_korobov_samples(args.horizon, 1031, base=307)[:args.n_trajs] + np.random.rand(1, args.horizon)) % 1.0
+            
+            print(actions)
             for i in range(args.n_trajs):
                 rs = 0.0
                 env.reset()
@@ -102,6 +106,7 @@ def brownian(args):
             loc = torch.zeros(1)
             scale = torch.ones(1)
             noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()
+            #noises = chaospy.distributions.sampler.sequences.korobov.create_korobov_samples(1, args.n_trajs)
             envs = [Brownian(args.gamma) for _ in range(args.n_trajs)]
             states = [env.reset() for env in envs]
             dones = [False for _ in range(args.n_trajs)]
@@ -197,10 +202,12 @@ def lqr(args):
                 if np.all(dones): break
                 envs, states, dones, returns = zip(*sorted(zip(envs, states, dones, returns), key=lambda x: np.inf if x[2] else env.expected_cost(K, sigma_a, x0=x[1])))
                 states, dones, returns = list(states), list(dones), list(returns)
-                bias = np.random.rand()
+                #bias = np.random.rand()
+                bias = np.random.rand(len(envs))
                 for i, env in enumerate(envs):
                     if dones[i]: break
-                    noise = norm.ppf((noises[i] + bias) % 1.0)
+                    #noise = norm.ppf((noises[i] + bias) % 1.0)
+                    noise = norm.ppf((noises[i] + bias[i]) % 1.0)
                     state, r, done, _ = env.step(get_action(states[i], K, noise))
                     states[i] = state
                     dones[i] = done

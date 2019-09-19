@@ -433,7 +433,7 @@ def collect_seeds(save_fn, sample_f, sample_args, success_f, n_seeds=50, max_see
 def sort_by_optimal_value(env):
     K = env.optimal_controller()
     sigma_a = np.diag(np.ones(env.M))
-    cost_f = env.expected_cost_state_func(K, Sigma_a)
+    cost_f = env.expected_cost_state_func(K, sigma_a)
     def f(args):
         env, state, done, data = args
         return np.inf if done else cost_f(state)
