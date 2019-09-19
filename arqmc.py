@@ -21,7 +21,7 @@ def parse_args(args=None):
     parser.add_argument('--env', choices=['brownian', 'lqr'], default='lqr')
     parser.add_argument('--n_trajs', type=int, default=2 ** 5)
     parser.add_argument('--horizon', type=int, default=10)
-    parser.add_argument('--n_runs', type=int, default=20)
+    parser.add_argument('--n_runs', type=int, default=10)
     parser.add_argument('--gamma', type=float, default=1.0)
     parser.add_argument('--algos', type=str, nargs='+', default=['mc', 'rqmc', 'arqmc'])
     parser.add_argument('--exp_name', type=str, default=None)
@@ -73,7 +73,7 @@ def brownian(args):
                 returns.append(rs)
             res = np.mean(returns)
             errors.append(np.abs(ground_truth - res))
-        print('mc: {}, error: {}'.format(res, np.mean(errors)))
+        print('mc: {}, error: {}({})'.format(res, np.mean(errors), np.std(errors)))
     # rqmc
     if 'rqmc' in args.algos:
         errors = []
@@ -93,15 +93,18 @@ def brownian(args):
                 returns.append(rs)
             res = np.mean(returns)
             errors.append(np.abs(ground_truth - res))
-        print('rqmc: {}, error: {}'.format(res, np.mean(errors)))
+        print('rqmc: {}, error: {}({})'.format(res, np.mean(errors), np.std(errors)))
     # array rqmc
     if 'arqmc' in args.algos:
         errors = []
         for _ in range(args.n_runs):
             returns = [0.0 for _ in range(args.n_trajs)]
-            loc = torch.zeros(1)
-            scale = torch.ones(1)
+            loc = torch.zeros(1+1)
+            scale = torch.ones(1+1)
+            #noises = sorted(list(Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()), key=lambda x: x[0])
             noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()
+            noises = np.array(noises)[:, 1:]
+
             envs = [Brownian(args.gamma) for _ in range(args.n_trajs)]
             states = [env.reset() for env in envs]
             dones = [False for _ in range(args.n_trajs)]
@@ -117,7 +120,7 @@ def brownian(args):
                     dones[i] = done
                     returns[i] += r
             errors.append(np.abs(ground_truth - np.mean(returns)))
-        print('array rqmc: {}, error: {}'.format(res, np.mean(errors)))
+        print('array rqmc: {}, error: {}({})'.format(res, np.mean(errors), np.std(errors)))
 
 def lqr(args):
     if args.exp_name is not None:
@@ -195,7 +198,8 @@ def lqr(args):
             returns = [0.0 for _ in range(args.n_trajs)]
             for _ in range(args.horizon):
                 if np.all(dones): break
-                envs, states, dones, returns = zip(*sorted(zip(envs, states, dones, returns), key=lambda x: np.inf if x[2] else env.expected_cost(K, sigma_a, x0=x[1])))
+                sorter = env.expected_cost_state_func(K, sigma_a)
+                envs, states, dones, returns = zip(*sorted(zip(envs, states, dones, returns), key=lambda x: np.inf if x[2] else sorter(x0=x[1])))
                 states, dones, returns = list(states), list(dones), list(returns)
                 bias = np.random.rand()
                 for i, env in enumerate(envs):

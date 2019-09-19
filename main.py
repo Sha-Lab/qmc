@@ -1,6 +1,7 @@
 import sys
 import gym
 import torch
+import torch.nn.functional as F
 import copy
 import dill
 import argparse
@@ -15,9 +16,12 @@ from pathlib import Path
 
 from envs import *
 from models import GaussianPolicy, get_mlp
-from utils import set_seed, rollout, MPSampler, SeqRunner, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gradient, ArrayRQMCSampler, sort_by_optimal_value, sort_by_norm
+from utils import set_seed, rollout, MPSampler, SeqSampler, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gradient, ArrayRQMCSampler, sort_by_optimal_value, sort_by_norm, multdim_sort, random_permute, logger, debug, Config
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
+
+# DEBUG FLAG
+Config.DEBUG = True
 
 # TODO:
 # implement n dependent sobol sequence
@@ -36,7 +40,6 @@ def parse_args(args):
     parser.add_argument('--AB_norm', type=float, default=1.0)
     parser.add_argument('-H', type=int, default=10, help='horizon')
     parser.add_argument('--noise', type=float, default=0.0, help='noise scale')
-    parser.add_argument('--rqmc_type', choices=['trajwise', 'array'], default='trajwise')
     parser.add_argument('--n_trajs', type=int, default=800, help='number of trajectories used')
     parser.add_argument('--n_iters', type=int, default=200, help='number of iterations of training')
     parser.add_argument('-lr', type=float, default=5e-5)
@@ -67,6 +70,7 @@ def get_env(args):
             B_norm=args.AB_norm,
             Sigma_s_scale=args.noise,
             #random_init=True,
+            #lims=100,
         )
     elif args.env == 'cartpole':
         env = CartPoleContinuousEnv()
@@ -107,7 +111,11 @@ def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
         loc = torch.zeros(action_dim)
         scale = torch.ones(action_dim)
         noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([n_trajs])).data.numpy().reshape(n_trajs, 1, action_dim)
-        noises = norm.ppf((noises + np.random.rand(1, n_steps, action_dim)) % 1.0)
+        #noises = sorted(list(Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([n_trajs])).data.numpy().reshape(n_trajs, 1, action_dim + 1)), key=lambda x: x[0][0]) # sort 1 dim?
+        #noises = np.array(noises)[:, :, 1:]
+        #noises = norm.ppf((noises + np.random.rand(1, n_steps, action_dim)) % 1.0)
+        #noises = norm.ppf((noises + np.random.rand(1, n_steps, 1)) % 1.0) # not correct
+        noises = norm.ppf((noises + np.random.rand(n_trajs, n_steps, action_dim)) % 1.0) # should equal to random
     else:
         raise Exception('unknown rqmc type')
     return noises
@@ -154,8 +162,13 @@ def compare_cost(args):
     arqmc_costs = []
     arqmc_means = []
     arqmc_noises = get_rqmc_noises(args.n_trajs, env.max_steps, env.M, 'array')
-    #sort_f = sort_by_norm(env)
-    sort_f = sort_by_optimal_value(env)
+
+    #sort_f = lambda pairs: sorted(pairs, key=sort_by_norm(env))
+    sort_f = lambda pairs: sorted(pairs, key=sort_by_optimal_value(env))
+    #sort_f = multdim_sort
+    #sort_f = random_permute
+    #sort_f = no_sort
+
     data = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f).sample(policy, arqmc_noises)
     for traj in data:
         rewards = np.asarray(traj['rewards'])
@@ -167,6 +180,7 @@ def compare_cost(args):
     mc_errors = np.abs(mc_means - expected_cost)
     rqmc_errors = np.abs(rqmc_means - expected_cost)
     arqmc_errors = np.abs(arqmc_means - expected_cost)
+    logger.info('mc: {}, rqmc: {}, arqmc: {}'.format(mc_errors[-1], rqmc_errors[-1], arqmc_errors[-1]))
     info = {**vars(args), 'mc_costs': mc_costs, 'rqmc_costs': rqmc_costs, 'arqmc_costs': arqmc_costs}
     if args.save_fn is not None:
         with open(args.save_fn, 'wb') as f:
@@ -188,68 +202,11 @@ def compare_cost(args):
                 'x': np.arange(len(arqmc_errors)),
                 'error': arqmc_errors,
             }),
-
         ])
         plot = sns.lineplot(x='x', y='error', hue='name', data=data)
         plot.set(yscale='log')
         plt.show()
     return mc_errors, rqmc_errors, arqmc_errors, info
-
-def learning(args):
-    set_seed(args.seed)
-    env = get_env(args)
-    #sampler = MPSampler(env, args.n_workers) # mp
-    sampler = SeqRunner(env) # sequential
-    init_policy = get_policy(args, env)
-    out_set = set()
-    def train(name, loss_fn, init_policy, use_rqmc=False, n_iters=None):
-        if n_iters is None: n_iters = args.n_iters
-        policy = copy.deepcopy(init_policy)
-        optim = torch.optim.SGD(policy.parameters(), args.lr)
-        all_returns = []
-        prog = trange(n_iters, desc=name)
-        N = env.observation_space.shape[0]
-        M = env.action_space.shape[0]
-        for _ in prog:
-            if name in out_set or (name == 'full' and len(out_set) == 2): # fast skip
-                all_returns.append(np.nan)
-                continue
-            returns = []
-            loss = [] # policy gradient loss
-            if use_rqmc:
-                noises = get_rqmc_noises(args.n_trajs, env.max_steps, M, args.rqmc_type)
-            else:
-                noises = np.random.randn(args.n_trajs, env.max_steps, M)
-            data = sampler.sample(policy, noises) # mp
-            for states, actions, rewards, _, _ in data:
-                loss.append(loss_fn(states, actions, rewards, policy))
-                returns.append(rewards.sum())
-                if len(states) != args.H and args.env in LQR_ENVS:
-                    out_set.add(name)
-            optim.zero_grad()
-            loss = -torch.mean(torch.stack(loss))
-            loss.backward()
-            optim.step()
-            all_returns.append(np.mean(returns))
-            prog.set_postfix(ret=all_returns[-1])
-        return np.asarray(all_returns)
-    results = dict(
-        mc=train('mc', variance_reduced_loss, init_policy),
-        rqmc=train('rqmc', variance_reduced_loss, init_policy, use_rqmc=True),
-    )
-    if args.env in LQR_ENVS:
-        results['optimal'] = train('optimal', no_loss, get_policy(argparse.Namespace(init_policy='optimal'), env), n_iters=1).repeat(args.n_iters)
-    if args.show_fig or args.save_fig is not None:
-        valid_results = {k: v for k, v in results.items() if k not in out_set}
-        costs = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs)), 'cost': -rs}) for name, rs in valid_results.items()])
-        plot = sns.lineplot(x='x', y='cost', hue='name', data=costs)
-        plt.yscale('log')
-        if args.save_fig:
-            plt.savefig(args.save_fig)
-        if args.show_fig:
-            plt.show()
-    info = {**vars(args), 'out': out_set}
-    return results, info
 
 def compare_grad(args):
     set_seed(args.seed)
@@ -272,12 +229,12 @@ def compare_grad(args):
 
     Sigma_a = np.diag(np.ones(env.M))
     Sigma_a_inv = np.linalg.inv(Sigma_a)
-    print(env.Sigma_s)
     mc_grads = []
     for i in tqdm(range(args.n_trajs), 'mc'):
         noises = np.random.randn(env.max_steps, env.M)
-        states, actions, rewards = rollout(env, policy, noises)
-        mc_grads.append(get_gradient(states, actions, rewards, policy, reinforce_loss))
+        states, actions, rewards, _, _ = rollout(env, policy, noises)
+        #mc_grads.append(get_gradient(states, actions, rewards, policy, reinforce_loss))
+        mc_grads.append(get_gradient(states, actions, rewards, policy, variance_reduced_loss))
     mc_grads = np.asarray(mc_grads)
     mc_means = np.cumsum(mc_grads, axis=0) / np.arange(1, len(mc_grads) + 1)[:, np.newaxis, np.newaxis]
 
@@ -286,19 +243,32 @@ def compare_grad(args):
     scale = torch.ones(env.max_steps * env.M)
     rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy()
     for i in tqdm(range(args.n_trajs), 'rqmc'):
-        states, actions, rewards = rollout(env, policy, rqmc_noises[i].reshape(env.max_steps, env.M))
-        rqmc_grads.append(get_gradient(states, actions, rewards, policy, reinforce_loss))
+        states, actions, rewards, _, _ = rollout(env, policy, rqmc_noises[i].reshape(env.max_steps, env.M))
+        #rqmc_grads.append(get_gradient(states, actions, rewards, policy, reinforce_loss))
+        rqmc_grads.append(get_gradient(states, actions, rewards, policy, variance_reduced_loss))
     rqmc_grads = np.asarray(rqmc_grads)
     rqmc_means = np.cumsum(rqmc_grads, axis=0) / np.arange(1, len(rqmc_grads) + 1)[:, np.newaxis, np.newaxis]
+
+    arqmc_grads = []
+    arqmc_noises = get_rqmc_noises(args.n_trajs, args.H, env.M, 'array')
+    sort_f = lambda pairs: sorted(pairs, key=sort_by_optimal_value(env))
+    data = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f).sample(policy, arqmc_noises)
+    for traj in data:
+        states, actions, rewards = np.asarray(traj['states']), np.asarray(traj['actions']), np.asarray(traj['rewards'])
+        #arqmc_grads.append(get_gradient(states, actions, rewards, policy, reinforce_loss))
+        arqmc_grads.append(get_gradient(states, actions, rewards, policy, variance_reduced_loss))
+    arqmc_grads = np.asarray(arqmc_grads)
+    arqmc_means = np.cumsum(arqmc_grads, axis=0) / np.arange(1, len(arqmc_grads) + 1)[:, np.newaxis, np.newaxis]
 
     expected_grad = env.expected_policy_gradient(K, Sigma_a)
 
     mc_errors = ((mc_means - expected_grad) ** 2).reshape(mc_means.shape[0], -1).mean(1) # why the sign is reversed?
     rqmc_errors = ((rqmc_means - expected_grad) ** 2).reshape(rqmc_means.shape[0], -1).mean(1)
+    arqmc_errors = ((arqmc_means - expected_grad) ** 2).reshape(arqmc_means.shape[0], -1).mean(1)
     info = {**vars(args)}
     if args.save_fn is not None:
         with open(save_fn, 'wb') as f:
-            dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, info=info), f)
+            dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, arqmc_errors=arqmc_errors, info=info), f)
     if args.show_fig:
         mc_data = pd.DataFrame({
             'name': 'mc',
@@ -310,10 +280,101 @@ def compare_grad(args):
             'x': np.arange(len(rqmc_errors)),
             'error': rqmc_errors,
         })
-        plot = sns.lineplot(x='x', y='error', hue='name', data=pd.concat([mc_data, rqmc_data]))
+        arqmc_data = pd.DataFrame({
+            'name': 'arqmc',
+            'x': np.arange(len(arqmc_errors)),
+            'error': arqmc_errors,
+        })
+        plot = sns.lineplot(x='x', y='error', hue='name', data=pd.concat([mc_data, rqmc_data, arqmc_data]))
         plot.set(yscale='log')
         plt.show()
-    return mc_errors, rqmc_errors, info
+    return mc_errors, rqmc_errors, arqmc_errors, info
+
+def learning(args):
+    set_seed(args.seed)
+    with debug('change env'):
+        #env = get_env(args)
+        env = LQR(
+            lims=100,
+            init_scale=1.0,
+            max_steps=args.H,
+            Sigma_s_kappa=1.0,
+            Q_kappa=1.0,
+            P_kappa=1.0,
+            A_norm=1.0,
+            B_norm=1.0,
+            Sigma_s_scale=args.noise,
+        )
+    #seq_sampler = MPSampler(env, args.n_workers) # mp
+    seq_sampler = SeqSampler(env) # sequential
+    sort_f = lambda pairs: sorted(pairs, key=sort_by_optimal_value(env))
+    vec_sampler = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f)
+    init_policy = get_policy(args, env)
+    out_set = set()
+    def train(name, loss_fn, init_policy, noise_type='mc', n_iters=None):
+        if n_iters is None: n_iters = args.n_iters
+        policy = copy.deepcopy(init_policy)
+        optim = torch.optim.SGD(policy.parameters(), args.lr)
+        all_returns = []
+        prog = trange(n_iters, desc=name)
+        N = env.observation_space.shape[0]
+        M = env.action_space.shape[0]
+        for _ in prog:
+            #if name in out_set:
+                #all_returns.append(np.nan)
+                #continue
+            returns = []
+            loss = [] # policy gradient loss
+            if noise_type == 'mc': # mc, rqmc, arqmc
+                noises = np.random.randn(args.n_trajs, env.max_steps, M)
+            elif noise_type == 'rqmc':
+                noises = get_rqmc_noises(args.n_trajs, env.max_steps, M, 'trajwise')
+            elif noise_type == 'arqmc':
+                noises = get_rqmc_noises(args.n_trajs, env.max_steps, M, 'array')
+            else:
+                raise Exception('unknown sequence type')
+            if noise_type in ['mc', 'rqmc']:
+                data = seq_sampler.sample(policy, noises)
+            else:
+                data = vec_sampler.sample(policy, noises)
+                data = [(np.asarray(d['states']), np.asarray(d['actions']), np.asarray(d['rewards'])) for d in data]
+            for traj in data:
+                states, actions, rewards = traj[:3]
+                loss.append(loss_fn(states, actions, rewards, policy))
+                returns.append(rewards.sum())
+                #if len(states) != args.H and args.env in LQR_ENVS:
+                    #out_set.add(name)
+            optim.zero_grad()
+            loss = -torch.mean(torch.stack(loss))
+            loss.backward()
+
+            with debug('sanity check'):
+                expected_grad = env.expected_policy_gradient(policy.mean.weight.detach().numpy(), np.diag(F.softplus(policy.std).detach().numpy()))
+                grad = np.array(policy.mean.weight.grad.cpu().numpy())
+                logger.info(np.linalg.norm(grad - expected_grad))
+
+            optim.step()
+            all_returns.append(np.mean(returns))
+            prog.set_postfix(ret=all_returns[-1])
+        return np.asarray(all_returns)
+    results = dict(
+        arqmc=train('arqmc', variance_reduced_loss, init_policy, noise_type='arqmc'),
+        mc=train('mc', variance_reduced_loss, init_policy, noise_type='mc'),
+        rqmc=train('rqmc', variance_reduced_loss, init_policy, noise_type='rqmc'),
+    )
+    if args.env in LQR_ENVS:
+        results['optimal'] = train('optimal', no_loss, get_policy(argparse.Namespace(init_policy='optimal'), env), n_iters=1).repeat(args.n_iters)
+    if args.show_fig or args.save_fig is not None:
+        valid_results = {k: v for k, v in results.items() if k not in out_set}
+        costs = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs)), 'cost': -rs}) for name, rs in valid_results.items()])
+        plot = sns.lineplot(x='x', y='cost', hue='name', data=costs)
+        plt.yscale('log')
+        if args.save_fig:
+            plt.savefig(args.save_fig)
+        if args.show_fig:
+            plt.show()
+    info = {**vars(args), 'out': out_set}
+    return results, info
 
 def main(args=None):
     #select_device(0 if torch.cuda.is_available() else -1)

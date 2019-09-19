@@ -62,7 +62,7 @@ class GaussianPolicy(Policy):
         if self.gate_output:
             mean = torch.tanh(mean)
         if self.learn_std:
-            action = mean + tensor(noise) * F.softplus(self.std)
+            action = mean + tensor(noise) * F.softplus(self.std) # +1e-8?
             #action = mean
         else:
             action = mean + tensor(noise)

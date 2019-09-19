@@ -154,7 +154,7 @@ class LQR(gym.Env):
     # you need to input a stable control matrix K
     # only support independent action noise, need to input the covariance
     def expected_cost(self, K, Sigma_a, x0=None, T=None):
-        return self.expected_cost_state_func(K, Sigma, T=T)(x0)
+        return self.expected_cost_state_func(K, Sigma_a, T=T)(x0)
 
     # expected state covariance at time t, used for expected policy gradient
     def expected_state_cov(self, t, K, Sigma_a):
@@ -193,6 +193,7 @@ class LQR(gym.Env):
         action_cost = action.dot(self.P).dot(action)
         reward = - state_cost - action_cost
         self.state = next_state
+        assert np.all(np.isfinite(self.state)), 'invalid state value'
         done = np.sum(self.state > self.lims) > 0
         done += np.sum(self.state < -self.lims) > 0
         if done: reward -= 1000.0 # incur high ending penalty

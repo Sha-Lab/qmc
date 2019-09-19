@@ -27,6 +27,15 @@ class Config:
     SEED_RANGE = 100000000
     DEBUG = False # for debug usage
 
+# put your debug statement inside this, when the debug flag is disabled, the code will report error
+@contextmanager
+def debug(desc=None):
+    assert Config.DEBUG
+    try:
+        yield None
+    finally:
+        pass
+
 class Logger:
     def __init__(self):
         self.logger = dict()
@@ -347,21 +356,23 @@ class ArrayRQMCSampler:
         dones = [False for _ in range(n_trajs)]
         for j in range(horizon):
             if np.all(dones): break
-            envs, states, dones, data = zip(*sorted(zip(envs, states, dones, data), key=self.sort_f))
-            #lambda env, state, done, data: np.inf if done else env.expected_cost(K, sigma_a, x0=x[1])))
+            pairs = list(zip(envs, states, dones, data))
+            pairs_to_sort = [p for p in pairs if not p[2]]
+            pairs_done = [p for p in pairs if p[2]]
+            envs, states, dones, data = zip(*( self.sort_f(pairs_to_sort) + pairs_done ))
             states, dones, data = list(states), list(dones), list(data)
             for i, env in enumerate(envs):
                 if dones[i]: break
                 action = policy(states[i], noises[i][j])
                 state, r, done, _ = env.step(action)
-                states[i] = state
-                dones[i] = done
-                data[i]['states'].append(state)
+                data[i]['states'].append(states[i])
                 data[i]['actions'].append(action)
                 data[i]['rewards'].append(r)
+                states[i] = state
+                dones[i] = done
         return data
 
-class SeqRunner:
+class SeqSampler:
     def __init__(self, env, deterministic=False):
         self.env = env
         env.seed(int(np.random.randint(Config.SEED_RANGE)))
@@ -385,6 +396,8 @@ def reinforce_loss(states, actions, rewards, policy):
 def variance_reduced_loss(states, actions, rewards, policy):
     log_probs = policy.distribution(states).log_prob(tensor(actions)).sum(-1)
     returns = rewards[::-1].cumsum()[::-1].copy()
+    assert np.all(np.isfinite(returns)), 'invalid return'
+    assert not torch.isnan(log_probs).any(), 'invalid logprobs'
     return (log_probs * tensor(returns)).sum()
 
 def no_loss(states, actions, rewards, policy):
@@ -432,7 +445,7 @@ def collect_seeds(save_fn, sample_f, sample_args, success_f, n_seeds=50, max_see
 # only support LQR
 def sort_by_optimal_value(env):
     K = env.optimal_controller()
-    sigma_a = np.diag(np.ones(env.M))
+    Sigma_a = np.diag(np.ones(env.M))
     cost_f = env.expected_cost_state_func(K, Sigma_a)
     def f(args):
         env, state, done, data = args
@@ -444,3 +457,20 @@ def sort_by_norm(env):
         env, state, done, data = args
         return np.inf if done else np.linalg.norm(state)
     return f
+
+# pair: env, state, done, data
+def multdim_sort(pairs, dim=0):
+    if len(pairs) == 1: return pairs
+    if dim == pairs[0][1].shape[0] - 1:
+        return sorted(pairs, key=lambda p: p[1][dim])
+    else:
+        mid = len(pairs) // 2 
+        return multdim_sort(sorted(pairs[:mid], key=lambda p: p[1][dim]), dim+1) + multdim_sort(sorted(pairs[mid:], key=lambda p: p[1][dim]), dim+1)
+
+def random_permute(pairs):
+    pairs = list(pairs) # shallow copy
+    random.shuffle(pairs)
+    return pairs
+
+def no_sort(pairs):
+    return pairs
