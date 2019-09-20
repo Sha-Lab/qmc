@@ -2,6 +2,7 @@ import sys
 import argparse
 import random
 import torch
+import chaospy
 import numpy as np
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from envs import Brownian, LQR
 from rqmc_distributions import Normal_RQMC, Uniform_RQMC
 from scipy.stats import norm
 from models import GaussianPolicy
-from utils import logger
+from utils import logger, set_seed
 
 # TODO:
 # try arqmc without full trajectory
@@ -25,6 +26,7 @@ def parse_args(args=None):
     parser.add_argument('--gamma', type=float, default=1.0)
     parser.add_argument('--algos', type=str, nargs='+', default=['mc', 'rqmc', 'arqmc'])
     parser.add_argument('--exp_name', type=str, default=None)
+    parser.add_argument('--seed', type=int, default=None)
     return parser.parse_args(args)
 
 ### tasks ### (estimate cost, learn)
@@ -82,6 +84,9 @@ def brownian(args):
             loc = torch.zeros(args.horizon)
             scale = torch.ones(args.horizon)
             actions = Normal_RQMC(loc, scale, scrambled=True).sample(torch.Size([args.n_trajs])).data.numpy()
+            #actions = (chaospy.distributions.sampler.sequences.korobov.create_korobov_samples(args.horizon, 1031, base=307)[:args.n_trajs] + np.random.rand(1, args.horizon)) % 1.0
+            
+            print(actions)
             for i in range(args.n_trajs):
                 rs = 0.0
                 env.reset()
@@ -99,12 +104,14 @@ def brownian(args):
         errors = []
         for _ in range(args.n_runs):
             returns = [0.0 for _ in range(args.n_trajs)]
-            loc = torch.zeros(1+1)
-            scale = torch.ones(1+1)
+            #loc = torch.zeros(1+1)
+            #scale = torch.ones(1+1)
             #noises = sorted(list(Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()), key=lambda x: x[0])
-            noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()
-            noises = np.array(noises)[:, 1:]
+            #noises = np.array(noises)[:, 1:]
 
+            noises = Uniform_RQMC(torch.zeros(1), torch.ones(1), scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()
+
+            #noises = chaospy.distributions.sampler.sequences.korobov.create_korobov_samples(1, args.n_trajs)
             envs = [Brownian(args.gamma) for _ in range(args.n_trajs)]
             states = [env.reset() for env in envs]
             dones = [False for _ in range(args.n_trajs)]
@@ -198,8 +205,8 @@ def lqr(args):
             returns = [0.0 for _ in range(args.n_trajs)]
             for _ in range(args.horizon):
                 if np.all(dones): break
-                sorter = env.expected_cost_state_func(K, sigma_a)
-                envs, states, dones, returns = zip(*sorted(zip(envs, states, dones, returns), key=lambda x: np.inf if x[2] else sorter(x0=x[1])))
+                #sorter = env.expected_cost_state_func(K, sigma_a)
+                #envs, states, dones, returns = zip(*sorted(zip(envs, states, dones, returns), key=lambda x: np.inf if x[2] else sorter(x0=x[1])))
                 states, dones, returns = list(states), list(dones), list(returns)
                 bias = np.random.rand()
                 for i, env in enumerate(envs):
@@ -214,6 +221,10 @@ def lqr(args):
 
 def main(args=None):
     args = parse_args(args)
+    if args.seed is None:
+        args.seed = np.random.randint(0, 10000000)
+        logger.prog('randomly selected seed: {}'.format(args.seed))
+    set_seed(args.seed)
     if args.env == 'brownian':
         brownian(args)
     elif args.env == 'lqr':

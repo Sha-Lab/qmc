@@ -36,6 +36,9 @@ def debug(desc=None):
     finally:
         pass
 
+def cprint(msg, color, attrs=[]):
+    print(colored(msg, color, attrs=attrs))
+
 class Logger:
     def __init__(self):
         self.logger = dict()
