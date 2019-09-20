@@ -307,8 +307,8 @@ def compare_grad(args):
 def learning(args):
     set_seed(args.seed)
     env = get_env(args)
-    seq_sampler = MPSampler(env, args.n_workers) # mp
-    #seq_sampler = SeqSampler(env) # sequential
+    #seq_sampler = MPSampler(env, args.n_workers) # mp
+    seq_sampler = SeqSampler(env) # sequential
     sort_f = get_sorter(args, env)
     vec_sampler = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f)
     init_policy = get_policy(args, env)
@@ -322,9 +322,9 @@ def learning(args):
         N = env.observation_space.shape[0]
         M = env.action_space.shape[0]
         for _ in prog:
-            #if name in out_set:
-                #all_returns.append(np.nan)
-                #continue
+            if name in out_set:
+                all_returns.append(np.nan)
+                continue
             returns = []
             loss = [] # policy gradient loss
             if noise_type == 'mc': # mc, rqmc, arqmc
@@ -344,16 +344,20 @@ def learning(args):
                 states, actions, rewards = traj[:3]
                 loss.append(loss_fn(states, actions, rewards, policy))
                 returns.append(rewards.sum())
-                #if len(states) != args.H and args.env in LQR_ENVS:
-                    #out_set.add(name)
+                if len(states) != args.H and args.env in LQR_ENVS:
+                    out_set.add(name)
             optim.zero_grad()
             loss = -torch.mean(torch.stack(loss))
             loss.backward()
 
-            #with debug('sanity check'):
+            #with debug('gradient error'):
                 #expected_grad = env.expected_policy_gradient(policy.mean.weight.detach().numpy(), np.diag(F.softplus(policy.std).detach().numpy()))
                 #grad = np.array(policy.mean.weight.grad.cpu().numpy())
                 #logger.info(np.linalg.norm(grad - expected_grad))
+
+            #with debug('max value in policy parameters'):   
+                #print('mean max:', np.abs(policy._mean.weight.detach().cpu().numpy()).max()) 
+                #print('std max:', np.abs(policy._std.detach().cpu().numpy()).max())
 
             optim.step()
             all_returns.append(np.mean(returns))

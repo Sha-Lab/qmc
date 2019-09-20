@@ -38,33 +38,32 @@ class GaussianPolicy(Policy):
         gate_output=False,
     ):
         super().__init__()
-        self.mean = mean_network
-        if learn_std: self.std = nn.Parameter(torch.zeros(action_dim))
-        else: self.std = torch.ones(action_dim)
+        self._mean = mean_network
+        if learn_std: self._std = nn.Parameter(torch.zeros(action_dim))
+        else: self._std = torch.ones(action_dim)
         self.gate_output = gate_output
         self.learn_std = learn_std
         self.to(Config.DEVICE)
 
-    def distribution(self, obs):
-        obs = tensor(obs)
-        mean = self.mean(obs)
-        if self.gate_output: mean = torch.tanh(mean)
-        if self.learn_std:
-            dist = torch.distributions.Normal(mean, F.softplus(self.std))
-        else:
-            dist = torch.distributions.Normal(mean, self.std)
-        return dist 
-
-    def forward(self, obs, noise):
-        #:: there is an issue with gpu of multiprocessing, unless you want to have one GPU each process, it is not worth it.
-        obs = tensor(obs)
-        mean = self.mean(obs)
+    def mean(self, obs):
+        mean = self._mean(obs)
         if self.gate_output:
             mean = torch.tanh(mean)
+        return mean
+
+    @property
+    def std(self):
         if self.learn_std:
-            action = mean + tensor(noise) * F.softplus(self.std) # +1e-8?
-            #action = mean
-        else:
-            action = mean + tensor(noise)
-            #action = mean
+            return torch.max(F.softplus(self._std), 1e-6 * torch.ones_like(self._std))
+        return self._std
+
+    def distribution(self, obs):
+        obs = tensor(obs)
+        dist = torch.distributions.Normal(self.mean(obs), self.std)
+        return dist 
+
+    #:: there is an issue with gpu of multiprocessing, unless you want to have one GPU each process, it is not worth it.
+    def forward(self, obs, noise):
+        obs = tensor(obs)
+        action = self.mean(obs) + tensor(noise) * self.std
         return action.cpu().detach().numpy()
