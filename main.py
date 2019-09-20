@@ -40,6 +40,7 @@ def parse_args(args):
     parser.add_argument('--AB_norm', type=float, default=1.0)
     parser.add_argument('-H', type=int, default=10, help='horizon')
     parser.add_argument('--noise', type=float, default=0.0, help='noise scale')
+    parser.add_argument('--sorter', choices=['value', 'norm', 'none', 'permute', 'group'], default='value')
     parser.add_argument('--n_trajs', type=int, default=800, help='number of trajectories used')
     parser.add_argument('--n_iters', type=int, default=200, help='number of iterations of training')
     parser.add_argument('-lr', type=float, default=5e-5)
@@ -123,6 +124,20 @@ def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
         raise Exception('unknown rqmc type')
     return noises
 
+def get_sorter(args, env):
+    if args.sorter == 'value':
+        return lambda pairs: sorted(pairs, key=sort_by_optimal_value(env))
+    elif args.sorter == 'norm':
+        return lambda pairs: sorted(pairs, key=sort_by_norm(env))
+    elif args.sorter == 'permute':
+        return random_permute
+    elif args.sorter == 'none':
+        return no_sort
+    elif args.sorter == 'group':
+        return multdim_sort
+    else:
+        raise Exception('unknown sorter')
+
 # it does not make sense to compare array RQMC in cumulative case, since it treated all trajectories together, but let's see what happen
 def compare_cost(args):
     set_seed(args.seed)
@@ -166,11 +181,7 @@ def compare_cost(args):
     arqmc_means = []
     arqmc_noises = get_rqmc_noises(args.n_trajs, env.max_steps, env.M, 'array')
 
-    #sort_f = lambda pairs: sorted(pairs, key=sort_by_norm(env))
-    sort_f = lambda pairs: sorted(pairs, key=sort_by_optimal_value(env))
-    #sort_f = multdim_sort
-    #sort_f = random_permute
-    #sort_f = no_sort
+    sort_f = get_sorter(args, env)
 
     data = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f).sample(policy, arqmc_noises)
     for traj in data:
@@ -254,7 +265,7 @@ def compare_grad(args):
 
     arqmc_grads = []
     arqmc_noises = get_rqmc_noises(args.n_trajs, args.H, env.M, 'array')
-    sort_f = lambda pairs: sorted(pairs, key=sort_by_optimal_value(env))
+    sort_f = get_sorter(args, env)
     data = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f).sample(policy, arqmc_noises)
     for traj in data:
         states, actions, rewards = np.asarray(traj['states']), np.asarray(traj['actions']), np.asarray(traj['rewards'])
@@ -310,7 +321,7 @@ def learning(args):
         )
     #seq_sampler = MPSampler(env, args.n_workers) # mp
     seq_sampler = SeqSampler(env) # sequential
-    sort_f = lambda pairs: sorted(pairs, key=sort_by_optimal_value(env))
+    sort_f = get_sorter(args, env)
     vec_sampler = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f)
     init_policy = get_policy(args, env)
     out_set = set()
@@ -351,19 +362,19 @@ def learning(args):
             loss = -torch.mean(torch.stack(loss))
             loss.backward()
 
-            with debug('sanity check'):
-                expected_grad = env.expected_policy_gradient(policy.mean.weight.detach().numpy(), np.diag(F.softplus(policy.std).detach().numpy()))
-                grad = np.array(policy.mean.weight.grad.cpu().numpy())
-                logger.info(np.linalg.norm(grad - expected_grad))
+            #with debug('sanity check'):
+                #expected_grad = env.expected_policy_gradient(policy.mean.weight.detach().numpy(), np.diag(F.softplus(policy.std).detach().numpy()))
+                #grad = np.array(policy.mean.weight.grad.cpu().numpy())
+                #logger.info(np.linalg.norm(grad - expected_grad))
 
             optim.step()
             all_returns.append(np.mean(returns))
             prog.set_postfix(ret=all_returns[-1])
         return np.asarray(all_returns)
     results = dict(
-        arqmc=train('arqmc', variance_reduced_loss, init_policy, noise_type='arqmc'),
         mc=train('mc', variance_reduced_loss, init_policy, noise_type='mc'),
         rqmc=train('rqmc', variance_reduced_loss, init_policy, noise_type='rqmc'),
+        arqmc=train('arqmc', variance_reduced_loss, init_policy, noise_type='arqmc'),
     )
     if args.env in LQR_ENVS:
         results['optimal'] = train('optimal', no_loss, get_policy(argparse.Namespace(init_policy='optimal'), env), n_iters=1).repeat(args.n_iters)
