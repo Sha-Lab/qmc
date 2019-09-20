@@ -306,21 +306,9 @@ def compare_grad(args):
 
 def learning(args):
     set_seed(args.seed)
-    with debug('change env'):
-        #env = get_env(args)
-        env = LQR(
-            lims=100,
-            init_scale=1.0,
-            max_steps=args.H,
-            Sigma_s_kappa=1.0,
-            Q_kappa=1.0,
-            P_kappa=1.0,
-            A_norm=1.0,
-            B_norm=1.0,
-            Sigma_s_scale=args.noise,
-        )
-    #seq_sampler = MPSampler(env, args.n_workers) # mp
-    seq_sampler = SeqSampler(env) # sequential
+    env = get_env(args)
+    seq_sampler = MPSampler(env, args.n_workers) # mp
+    #seq_sampler = SeqSampler(env) # sequential
     sort_f = get_sorter(args, env)
     vec_sampler = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f)
     init_policy = get_policy(args, env)

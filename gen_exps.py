@@ -76,31 +76,6 @@ def search_network_std(touch: int=1, shuffle: int=0):
     generate_args('exps/search_network_std', args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
 
 @cmd()
-def search_network_stepwise(touch: int=1, shuffle: int=0):
-    variants = {
-        '--n_trajs': [60, 100, 150, 200, 300],
-        '-lr': [0.0001, 0.0005, 0.001],
-        '-H': [5, 10, 15],
-        '--init_scale': [1.0, 3.0, 5.0],
-    }
-    args = []
-    kwargs = {
-        '--task': 'learn',
-        '--n_iters': 300,
-        '--n_seeds': 10,
-        '--max_seed': 30,
-        '--mode': 'collect',
-        '--init_policy': 'mlp',
-        '--n_workers': 8,
-        '--rqmc_type': 'stepwise',
-    }
-    def post_variant(variant):
-        variant['--save_fn'] = 'data/search_network_stepwise/{}-{}-{}-{}'.format(*[variant[k] for k in ['--n_trajs', '-lr', '-H', '--init_scale']])
-        return variant
-    generate_args('exps/search_network_stepwise', args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
-
-
-@cmd()
 def search_network_std_tanh(touch: int=1, shuffle: int=0):
     variants = {
         '--n_trajs': [60, 100, 150, 200, 300],
@@ -192,6 +167,29 @@ def search_PGPE():
         variant['--save_fn'] = 'data/search_PGPE/{}_{}-{}-{}'.format(variant['--xu_dim'][0], variant['--xu_dim'][1], variant['--init_scale'], variant['-H'])
         return variant
     generate_args('exps/search_PGPE', args, kwargs, variants, post_variant=post_variant, shuffle=False)
+
+@cmd()
+def search_arqmc_linear(touch: int=1, shuffle: int=0):
+    variants = {
+        '--n_trajs': [64, 128, 256, 512],
+        '-lr': [0.0001, 0.0005, 0.001],
+        '-H': [5, 10, 20, 40],
+        '--init_scale': [1.0, 3.0, 5.0],
+    }
+    args = []
+    kwargs = {
+        '--task': 'learn',
+        '--n_iters': 300,
+        '--n_seeds': 10,
+        '--max_seed': 30,
+        '--mode': 'collect',
+        '--init_policy': 'linear',
+        '--n_workers': 8,
+    }
+    def post_variant(variant):
+        variant['--save_fn'] = 'data/search_arqmc_linear/traj_{}-lr_{}-H_{}-init_{}'.format(*[variant[k] for k in ['--n_trajs', '-lr', '-H', '--init_scale']])
+        return variant
+    generate_args('exps/search_arqmc_linear', args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
 
 @cmd()
 def search_arqmc():
