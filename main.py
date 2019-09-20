@@ -110,12 +110,15 @@ def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
         from scipy.stats import norm
         loc = torch.zeros(action_dim)
         scale = torch.ones(action_dim)
-        noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([n_trajs])).data.numpy().reshape(n_trajs, 1, action_dim)
+        noises = np.asarray([Normal_RQMC(loc, scale).sample(torch.Size([n_trajs])).data.numpy() for _ in range(n_steps)]).transpose(1, 0, 2)
+
+        #noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([n_trajs])).data.numpy().reshape(n_trajs, 1, action_dim)
+        #noises = norm.ppf((noises + np.random.rand(n_trajs, n_steps, action_dim)) % 1.0) # should equal to random
+
         #noises = sorted(list(Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([n_trajs])).data.numpy().reshape(n_trajs, 1, action_dim + 1)), key=lambda x: x[0][0]) # sort 1 dim?
         #noises = np.array(noises)[:, :, 1:]
         #noises = norm.ppf((noises + np.random.rand(1, n_steps, action_dim)) % 1.0)
         #noises = norm.ppf((noises + np.random.rand(1, n_steps, 1)) % 1.0) # not correct
-        noises = norm.ppf((noises + np.random.rand(n_trajs, n_steps, action_dim)) % 1.0) # should equal to random
     else:
         raise Exception('unknown rqmc type')
     return noises

@@ -176,6 +176,8 @@ def lqr(args):
             loc = torch.zeros(env.M * args.horizon)
             scale = torch.ones(env.M * args.horizon)
             noises = Normal_RQMC(loc, scale, scrambled=True).sample(torch.Size([args.n_trajs])).numpy().reshape(args.n_trajs, args.horizon, env.M)
+            #noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy().reshape(args.n_trajs, args.horizon, env.M)
+            #noises = norm.ppf((noises + np.random.rand(1, args.horizon, env.M)) % 1.0)
             for i in range(args.n_trajs):
                 rs = 0.0
                 state = env.reset()
@@ -193,11 +195,11 @@ def lqr(args):
         sorter = get_sorter(args, env)
         errors = []
         for _ in range(args.n_runs):
-            loc = torch.zeros(env.M)
-            scale = torch.ones(env.M)
-            noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()
-            biases = np.random.rand(args.n_trajs, args.horizon)
-            assert np.all(np.isfinite(noises))
+            #loc = torch.zeros(env.M)
+            #scale = torch.ones(env.M)
+            #noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()
+            #biases = np.random.rand(args.horizon, env.M)
+            #assert np.all(np.isfinite(noises))
             envs = [get_env() for _ in range(args.n_trajs)]
             states = [env.reset() for env in envs]
             dones = [False for _ in range(args.n_trajs)]
@@ -209,10 +211,11 @@ def lqr(args):
                 pairs_done = [p for p in pairs if p[2]]
                 envs, states, dones, returns = zip(*( sorter(pairs_to_sort) + pairs_done ))
                 states, dones, returns = list(states), list(dones), list(returns)
+                noises = Normal_RQMC(torch.zeros(env.M), torch.ones(env.M), scrambled=True).sample(torch.Size([args.n_trajs])).numpy()
                 for i, env in enumerate(envs):
                     if dones[i]: break
-                    noise = norm.ppf(np.clip((noises[i] + biases[i][j]) % 1.0, 1e-8, 1-1e-8))
-                    state, r, done, _ = env.step(get_action(states[i], K, noise))
+                    #noise = norm.ppf(np.clip((noises[i] + biases[j]) % 1.0, 1e-8, 1-1e-8))
+                    state, r, done, _ = env.step(get_action(states[i], K, noises[i]))
                     states[i] = state
                     dones[i] = done
                     returns[i] += r
