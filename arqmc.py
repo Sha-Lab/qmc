@@ -5,13 +5,15 @@ import torch
 import chaospy
 import numpy as np
 from pathlib import Path
+from ipdb import launch_ipdb_on_exception
 
 from envs import Brownian, LQR
 #from rqmc_distributions.dist_rqmc import Uniform_RQMC, Normal_RQMC
 from rqmc_distributions import Normal_RQMC, Uniform_RQMC
 from scipy.stats import norm
 from models import GaussianPolicy
-from utils import logger
+from utils import logger, set_seed
+from utils import sort_by_optimal_value, sort_by_norm, multdim_sort, no_sort, random_permute
 
 # TODO:
 # try arqmc without full trajectory
@@ -24,8 +26,10 @@ def parse_args(args=None):
     parser.add_argument('--horizon', type=int, default=10)
     parser.add_argument('--n_runs', type=int, default=20)
     parser.add_argument('--gamma', type=float, default=1.0)
+    parser.add_argument('--sorter', default='value', choices=['value', 'norm', 'none', 'permute', 'group'])
     parser.add_argument('--algos', type=str, nargs='+', default=['mc', 'rqmc', 'arqmc'])
     parser.add_argument('--exp_name', type=str, default=None)
+    parser.add_argument('--seed', type=int, default=None)
     return parser.parse_args(args)
 
 ### tasks ### (estimate cost, learn)
@@ -33,27 +37,6 @@ def parse_args(args=None):
 ### envs ### (see args.env)
 
 ### sampler ###
-class MCSampler:
-    def __init__(self, env):
-        self.env = env
-
-    def sample(self, policy, n_trajs):
-        data = {'states': [], 'rewards': [], 'dones': []}
-        for i in range(n_trajs):
-            states = []
-            rewards = []
-            dones = []
-            done = False
-            state = self.env.reset()
-            while not done:
-                state, r, done, _ = env.step(policy(state, np.random.randn(self.env.action_space.shape[0])))
-                states.append(state)
-                rewards.append(r)
-                dones.append(done)
-            data['states'].append(states)
-            data['rewards'].append(rewards)
-            data['dones'].append(dones)
-        return data
         
 def brownian(args):
     ground_truth = 0.2 / np.sqrt(2 * np.pi) * np.sum(np.sqrt(np.arange(1, args.horizon + 1)) * (np.cumprod(args.gamma * np.ones(args.horizon))/ args.gamma))
@@ -74,7 +57,7 @@ def brownian(args):
                 returns.append(rs)
             res = np.mean(returns)
             errors.append(np.abs(ground_truth - res))
-        print('mc: {}, error: {}'.format(res, np.mean(errors)))
+        print('mc: {}, error: {}({})'.format(res, np.mean(errors), np.std(errors)))
     # rqmc
     if 'rqmc' in args.algos:
         errors = []
@@ -97,15 +80,19 @@ def brownian(args):
                 returns.append(rs)
             res = np.mean(returns)
             errors.append(np.abs(ground_truth - res))
-        print('rqmc: {}, error: {}'.format(res, np.mean(errors)))
+        print('rqmc: {}, error: {}({})'.format(res, np.mean(errors), np.std(errors)))
     # array rqmc
     if 'arqmc' in args.algos:
         errors = []
         for _ in range(args.n_runs):
             returns = [0.0 for _ in range(args.n_trajs)]
-            loc = torch.zeros(1)
-            scale = torch.ones(1)
-            noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()
+            #loc = torch.zeros(1+1)
+            #scale = torch.ones(1+1)
+            #noises = sorted(list(Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()), key=lambda x: x[0])
+            #noises = np.array(noises)[:, 1:]
+
+            noises = Uniform_RQMC(torch.zeros(1), torch.ones(1), scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()
+
             #noises = chaospy.distributions.sampler.sequences.korobov.create_korobov_samples(1, args.n_trajs)
             envs = [Brownian(args.gamma) for _ in range(args.n_trajs)]
             states = [env.reset() for env in envs]
@@ -122,7 +109,21 @@ def brownian(args):
                     dones[i] = done
                     returns[i] += r
             errors.append(np.abs(ground_truth - np.mean(returns)))
-        print('array rqmc: {}, error: {}'.format(res, np.mean(errors)))
+        print('array rqmc: {}, error: {}({})'.format(res, np.mean(errors), np.std(errors)))
+
+def get_sorter(args, env):
+    if args.sorter == 'value':
+        return lambda pairs: sorted(pairs, key=sort_by_optimal_value(env))
+    elif args.sorter == 'norm':
+        return lambda pairs: sorted(pairs, key=sort_by_norm(env))
+    elif args.sorter == 'permute':
+        return random_permute
+    elif args.sorter == 'none':
+        return no_sort
+    elif args.sorter == 'group':
+        return multdim_sort
+    else:
+        raise Exception('unknown sorter')
 
 def lqr(args):
     if args.exp_name is not None:
@@ -189,6 +190,7 @@ def lqr(args):
         logger.log('rqmc error: {}'.format(np.mean(errors)), name='out')
     # array rqmc
     if 'arqmc' in args.algos:
+        sorter = get_sorter(args, env)
         errors = []
         for _ in range(args.n_runs):
             loc = torch.zeros(env.M)
@@ -202,12 +204,14 @@ def lqr(args):
             returns = [0.0 for _ in range(args.n_trajs)]
             for j in range(args.horizon):
                 if np.all(dones): break
-                # no sort
-                #envs, states, dones, returns = zip(*sorted(zip(envs, states, dones, returns), key=lambda x: np.inf if x[2] else env.expected_cost(K, sigma_a, x0=x[1])))
+                pairs = list(zip(envs, states, dones, returns))
+                pairs_to_sort = [p for p in pairs if not p[2]]
+                pairs_done = [p for p in pairs if p[2]]
+                envs, states, dones, returns = zip(*( sorter(pairs_to_sort) + pairs_done ))
                 states, dones, returns = list(states), list(dones), list(returns)
                 for i, env in enumerate(envs):
                     if dones[i]: break
-                    noise = norm.ppf((noises[i] + bias[i][j]) % 1.0)
+                    noise = norm.ppf(np.clip((noises[i] + biases[i][j]) % 1.0, 1e-8, 1-1e-8))
                     state, r, done, _ = env.step(get_action(states[i], K, noise))
                     states[i] = state
                     dones[i] = done
@@ -217,6 +221,10 @@ def lqr(args):
 
 def main(args=None):
     args = parse_args(args)
+    if args.seed is None:
+        args.seed = np.random.randint(0, 10000000)
+        logger.prog('randomly selected seed: {}'.format(args.seed))
+    set_seed(args.seed)
     if args.env == 'brownian':
         brownian(args)
     elif args.env == 'lqr':
@@ -225,4 +233,5 @@ def main(args=None):
         raise Exception('unknown exp type')
 
 if __name__ == "__main__":
-    main()
+    with launch_ipdb_on_exception():
+        main()

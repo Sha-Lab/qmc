@@ -194,6 +194,7 @@ class LQR(gym.Env):
         state_cost = self.state.dot(self.Q).dot(self.state)
         action_cost = action.dot(self.P).dot(action)
         reward = - state_cost - action_cost
+        assert np_check_numerics(self.state, next_state, reward)
         self.state = next_state
         done = np.sum(self.state > self.lims) > 0
         done += np.sum(self.state < -self.lims) > 0
@@ -202,5 +203,4 @@ class LQR(gym.Env):
         self.num_steps += 1
         if self.num_steps >= self.max_steps or np.random.rand() > self.gamma:
             done = True
-        assert np_check_numerics(next_state, reward)
         return next_state, reward, done, info
