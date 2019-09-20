@@ -71,7 +71,7 @@ def get_env(args):
             B_norm=args.AB_norm,
             Sigma_s_scale=args.noise,
             #random_init=True,
-            #lims=100,
+            lims=100,
         )
     elif args.env == 'cartpole':
         env = CartPoleContinuousEnv()
