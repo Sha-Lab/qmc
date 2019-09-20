@@ -5,6 +5,8 @@ import gym
 from gym import spaces
 from scipy.linalg import solve_discrete_are
 
+from utils import np_check_numerics
+
 EPS = 1e-8
 
 
@@ -200,4 +202,5 @@ class LQR(gym.Env):
         self.num_steps += 1
         if self.num_steps >= self.max_steps or np.random.rand() > self.gamma:
             done = True
+        assert np_check_numerics(next_state, reward)
         return next_state, reward, done, info

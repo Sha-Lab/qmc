@@ -229,6 +229,9 @@ def set_seed(seed):
         if torch.cuda.is_available():
             torch.cuda.manual_seed(seed)
 
+def np_check_numerics(*args):
+    return all([np.all(np.isfinite(x)) for x in args])
+
 # environment might has different random seed
 def rollout(env, policy, noises, deterministic=False):
     states = []

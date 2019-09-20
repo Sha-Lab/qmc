@@ -194,20 +194,20 @@ def lqr(args):
             loc = torch.zeros(env.M)
             scale = torch.ones(env.M)
             noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()
+            biases = np.random.rand(args.n_trajs, args.horizon)
+            assert np.all(np.isfinite(noises))
             envs = [get_env() for _ in range(args.n_trajs)]
             states = [env.reset() for env in envs]
             dones = [False for _ in range(args.n_trajs)]
             returns = [0.0 for _ in range(args.n_trajs)]
-            for _ in range(args.horizon):
+            for j in range(args.horizon):
                 if np.all(dones): break
-                envs, states, dones, returns = zip(*sorted(zip(envs, states, dones, returns), key=lambda x: np.inf if x[2] else env.expected_cost(K, sigma_a, x0=x[1])))
+                # no sort
+                #envs, states, dones, returns = zip(*sorted(zip(envs, states, dones, returns), key=lambda x: np.inf if x[2] else env.expected_cost(K, sigma_a, x0=x[1])))
                 states, dones, returns = list(states), list(dones), list(returns)
-                #bias = np.random.rand()
-                bias = np.random.rand(len(envs))
                 for i, env in enumerate(envs):
                     if dones[i]: break
-                    #noise = norm.ppf((noises[i] + bias) % 1.0)
-                    noise = norm.ppf((noises[i] + bias[i]) % 1.0)
+                    noise = norm.ppf((noises[i] + bias[i][j]) % 1.0)
                     state, r, done, _ = env.step(get_action(states[i], K, noise))
                     states[i] = state
                     dones[i] = done
