@@ -14,6 +14,7 @@ from tqdm import tqdm, trange
 from ipdb import slaunch_ipdb_on_exception
 from pathlib import Path
 
+import exps
 from envs import *
 from models import GaussianPolicy, get_mlp
 from utils import set_seed, rollout, MPSampler, SeqSampler, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gradient, ArrayRQMCSampler, sort_by_optimal_value, sort_by_norm, multdim_sort, random_permute, logger, debug, Config
@@ -24,10 +25,11 @@ from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 Config.DEBUG = True
 
 # TODO:
-# implement n dependent sobol sequence
 # (done) implement discount
 
-def parse_args(args):
+
+### move template to a separate function ###
+def parse_args(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--task',
@@ -53,7 +55,8 @@ def parse_args(args):
     parser.add_argument('--max_seed', type=int, default=100)
     parser.add_argument('--n_workers', type=int, default=1)
     parser.add_argument('--save_fn', type=str, default=None)
-    return parser.parse_args(args)
+    args = exps.parse_args(parser, args)
+    return args
 
 LQR_ENVS = ['lqr']
 
@@ -403,6 +406,7 @@ def main(args=None):
         success_f = lambda result: len(result[1]['out']) == 0
         collect_seeds(args.save_fn, exp_f, args, success_f=success_f, n_seeds=args.n_seeds, max_seed=args.max_seed)
 
-if __name__ == "__main__":
-    with slaunch_ipdb_on_exception():
-        main()
+
+if __name__ == '__main__':
+    from exps import run_one_exp
+    run_one_exp(main)
