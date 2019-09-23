@@ -17,7 +17,7 @@ from pathlib import Path
 import exps
 from envs import *
 from models import GaussianPolicy, get_mlp
-from utils import set_seed, rollout, MPSampler, SeqSampler, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gradient, ArrayRQMCSampler, sort_by_optimal_value, sort_by_norm, multdim_sort, random_permute, logger, debug, Config
+from utils import set_seed, rollout, MPSampler, SeqSampler, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gradient, ArrayRQMCSampler, sort_by_optimal_value, sort_by_norm, multdim_sort, no_sort, random_permute, logger, debug, Config
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
@@ -202,7 +202,8 @@ def compare_cost(args):
     mc_errors = np.abs(mc_means - expected_cost)
     rqmc_errors = np.abs(rqmc_means - expected_cost)
     arqmc_errors_dict = {sorter: np.abs(arqmc_means - expected_cost) for sorter, arqmc_means in arqmc_means_dict.items()}
-    logger.info('mc: {}, rqmc: {}, arqmc: {}'.format(mc_errors[-1], rqmc_errors[-1], arqmc_errors[-1]))
+    logger.info('mc: {}, rqmc: {} '.format(mc_errors[-1], rqmc_errors[-1]) + \
+        ' '.join(['arqmc ({}): {}'.format(sorter, arqmc_errors[-1]) for sorter, arqmc_errors in arqmc_errors_dict.items()]))
     info = {**vars(args), 'mc_costs': mc_costs, 'rqmc_costs': rqmc_costs, 'arqmc_costs': arqmc_costs}
     if args.save_fn is not None:
         with open(args.save_fn, 'wb') as f:
