@@ -1,35 +1,6 @@
-import random
-from itertools import product
-from utils import cmd, cmd_run
-from pathlib import Path
 from ipdb import launch_ipdb_on_exception
+from exps import cmd, cmd_run, generate_args
 
-def generate_cmd(args=None, kwargs=None):
-    cmds = ''
-    if args:
-        cmds += ' '.join(map(process_arg, args))
-    cmds += ' ' 
-    if kwargs:
-        cmds += ' '.join(['{} {}'.format(k, process_arg(v)) for k, v in kwargs.items()])
-    return cmds
-
-def dump_args(f, args=None, kwargs=None):
-    f.write(generate_cmd(args, kwargs) + '\n')
-
-def process_arg(arg):
-    if isinstance(arg, (list, tuple)):
-        return ' '.join([str(v) for v in arg])
-    return arg
-
-def generate_args(exp_path, args, kwargs, variants, post_variant=None, touch=True, shuffle=False):
-    keys, values = zip(*variants.items())
-    variants = [dict(zip(keys, v)) for v in product(*values)]
-    if shuffle: random.shuffle(variants)
-    if touch: open(exp_path, 'w').close()
-    with open(exp_path, 'a+') as f:
-        for variant in variants:
-            if post_variant: variant = post_variant(variant)
-            dump_args(f, args, {**kwargs, **variant})
 
 @cmd()
 def search_learn(touch: int=1, shuffle: int=0):
@@ -197,16 +168,37 @@ def search_arqmc():
     kwargs = {
         '--task': 'lqr',
         '--n_runs': 20,
-        #'--algos': ['arqmc'],
     }
     variants = {
         '--n_trajs': [2 ** i for i in (5, 7, 9)],
-        '--horizon': [10, 20, 40, 60, 80, 100],
+        '--horizon': [10, 20, 40, 60, 80, 100, 100],
     }
-    def post_variant(variant):
+    def post_option(toggle, variant):
         variant['--exp_name'] = 'search_arqmc/{}-{}'.format(variant['--n_trajs'], variant['--horizon'])
-        return variant
-    generate_args('exps/search_arqmc', args, kwargs, variants, post_variant=post_variant, shuffle=False)
+        return toggle, variant
+    generate_args('exps/search_arqmc', args, kwargs, toggles, variants, post_option=post_option, shuffle=False)
+
+@cmd()
+def compare_arqmc_sorter_on_cost():
+    name = 'compare_arqmc_sorter_on_cost'
+    args = []
+    kwargs = {
+        '--task': 'cost',
+        '--mode': 'seeds',
+        '--sorter': 'value norm none permute group',
+        '--n_seeds': 100,
+        '--n_trajs': 8192,
+    }
+    toggles = []
+    variants = {
+        '--xu_dim': [(20, 12), (10, 8), (5, 5)],
+        '-H': [5, 10, 20, 40],
+        '--init_scale': [1.0, 3.0, 5.0],
+    }
+    def post_option(toggle, variant):
+        variant['--save_fn'] = 'log/{}/{}_{}-{}-{}'.format(name, variant['--xu_dim'][0], variant['--xu_dim'][1], variant['-H'], variant['--init_scale'])
+        return toggle, variant
+    generate_args('exps/{}'.format(name), args, kwargs, toggles, variants, post_option=post_option, shuffle=False)
 
 if __name__ == "__main__":
     with launch_ipdb_on_exception():

@@ -14,9 +14,10 @@ from tqdm import tqdm, trange
 from ipdb import slaunch_ipdb_on_exception
 from pathlib import Path
 
+import exps
 from envs import *
 from models import GaussianPolicy, get_mlp
-from utils import set_seed, rollout, MPSampler, SeqSampler, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gradient, ArrayRQMCSampler, sort_by_optimal_value, sort_by_norm, multdim_sort, random_permute, logger, debug, Config
+from utils import set_seed, rollout, MPSampler, SeqSampler, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gradient, ArrayRQMCSampler, sort_by_optimal_value, sort_by_norm, multdim_sort, no_sort, random_permute, logger, debug, Config
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
@@ -24,10 +25,11 @@ from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 Config.DEBUG = True
 
 # TODO:
-# implement n dependent sobol sequence
 # (done) implement discount
 
-def parse_args(args):
+
+### move template to a separate function ###
+def parse_args(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--task',
@@ -40,7 +42,7 @@ def parse_args(args):
     parser.add_argument('--AB_norm', type=float, default=1.0)
     parser.add_argument('-H', type=int, default=10, help='horizon')
     parser.add_argument('--noise', type=float, default=0.0, help='noise scale')
-    parser.add_argument('--sorter', choices=['value', 'norm', 'none', 'permute', 'group'], default='value')
+    parser.add_argument('--sorter', nargs='+', choices=['value', 'norm', 'none', 'permute', 'group'], default=['value'])
     parser.add_argument('--n_trajs', type=int, default=800, help='number of trajectories used')
     parser.add_argument('--n_iters', type=int, default=200, help='number of iterations of training')
     parser.add_argument('-lr', type=float, default=5e-5)
@@ -53,7 +55,8 @@ def parse_args(args):
     parser.add_argument('--max_seed', type=int, default=100)
     parser.add_argument('--n_workers', type=int, default=1)
     parser.add_argument('--save_fn', type=str, default=None)
-    return parser.parse_args(args)
+    args = exps.parse_args(parser, args)
+    return args
 
 LQR_ENVS = ['lqr']
 
@@ -124,16 +127,16 @@ def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
         raise Exception('unknown rqmc type')
     return noises
 
-def get_sorter(args, env):
-    if args.sorter == 'value':
+def get_sorter(sorter, env):
+    if sorter == 'value':
         return lambda pairs: sorted(pairs, key=sort_by_optimal_value(env))
-    elif args.sorter == 'norm':
+    elif sorter == 'norm':
         return lambda pairs: sorted(pairs, key=sort_by_norm(env))
-    elif args.sorter == 'permute':
+    elif sorter == 'permute':
         return random_permute
-    elif args.sorter == 'none':
+    elif sorter == 'none':
         return no_sort
-    elif args.sorter == 'group':
+    elif sorter == 'group':
         return multdim_sort
     else:
         raise Exception('unknown sorter')
@@ -177,28 +180,34 @@ def compare_cost(args):
         rqmc_means.append(np.mean(rqmc_costs))
 
     # array rqmc
-    arqmc_costs = []
-    arqmc_means = []
+    arqmc_costs_dict = {}
+    arqmc_means_dict = {}
     arqmc_noises = get_rqmc_noises(args.n_trajs, env.max_steps, env.M, 'array')
 
-    sort_f = get_sorter(args, env)
+    for sorter in args.sorter:
+        arqmc_costs = []
+        arqmc_means = []
+        sort_f = get_sorter(sorter, env)
 
-    data = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f).sample(policy, arqmc_noises)
-    for traj in data:
-        rewards = np.asarray(traj['rewards'])
-        arqmc_costs.append(-rewards.sum())
-        arqmc_means.append(np.mean(arqmc_costs))
+        data = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f).sample(policy, arqmc_noises)
+        for traj in data:
+            rewards = np.asarray(traj['rewards'])
+            arqmc_costs.append(-rewards.sum())
+            arqmc_means.append(np.mean(arqmc_costs))
+        arqmc_costs_dict[sorter] = arqmc_costs
+        arqmc_means_dict[sorter] = arqmc_means
 
     expected_cost = env.expected_cost(K, np.diag(np.ones(env.M)))
 
     mc_errors = np.abs(mc_means - expected_cost)
     rqmc_errors = np.abs(rqmc_means - expected_cost)
-    arqmc_errors = np.abs(arqmc_means - expected_cost)
-    logger.info('mc: {}, rqmc: {}, arqmc: {}'.format(mc_errors[-1], rqmc_errors[-1], arqmc_errors[-1]))
+    arqmc_errors_dict = {sorter: np.abs(arqmc_means - expected_cost) for sorter, arqmc_means in arqmc_means_dict.items()}
+    logger.info('mc: {}, rqmc: {} '.format(mc_errors[-1], rqmc_errors[-1]) + \
+        ' '.join(['arqmc ({}): {}'.format(sorter, arqmc_errors[-1]) for sorter, arqmc_errors in arqmc_errors_dict.items()]))
     info = {**vars(args), 'mc_costs': mc_costs, 'rqmc_costs': rqmc_costs, 'arqmc_costs': arqmc_costs}
     if args.save_fn is not None:
         with open(args.save_fn, 'wb') as f:
-            dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, arqmc_errors=arqmc_errors, info=info), f)
+            dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, arqmc_errors_dict=arqmc_errors_dict, info=info), f)
     if args.show_fig:
         data = pd.concat([
             pd.DataFrame({
@@ -211,16 +220,19 @@ def compare_cost(args):
                 'x': np.arange(len(rqmc_errors)),
                 'error': rqmc_errors,
             }),
-            pd.DataFrame({
-                'name': 'arqmc',
-                'x': np.arange(len(arqmc_errors)),
-                'error': arqmc_errors,
-            }),
+            pd.concat([
+                pd.DataFrame({
+                    'name': 'arqmc_{}'.format(sorter),
+                    'x': np.arange(len(arqmc_errors)),
+                    'error': arqmc_errors,
+                })
+                for sorter, arqmc_errors in arqmc_errors_dict.items()
+            ]),
         ])
         plot = sns.lineplot(x='x', y='error', hue='name', data=data)
         plot.set(yscale='log')
         plt.show()
-    return mc_errors, rqmc_errors, arqmc_errors, info
+    return mc_errors, rqmc_errors, arqmc_errors_dict, info
 
 def compare_grad(args):
     set_seed(args.seed)
@@ -403,6 +415,7 @@ def main(args=None):
         success_f = lambda result: len(result[1]['out']) == 0
         collect_seeds(args.save_fn, exp_f, args, success_f=success_f, n_seeds=args.n_seeds, max_seed=args.max_seed)
 
-if __name__ == "__main__":
-    with slaunch_ipdb_on_exception():
-        main()
+
+if __name__ == '__main__':
+    from exps import run_one_exp
+    run_one_exp(main)
