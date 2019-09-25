@@ -63,6 +63,7 @@ class GaussianPolicy(Policy):
         return dist 
 
     #:: there is an issue with gpu of multiprocessing, unless you want to have one GPU each process, it is not worth it.
+    # this works both for batch and a single input
     def forward(self, obs, noise):
         obs = tensor(obs)
         action = self.mean(obs) + tensor(noise) * self.std

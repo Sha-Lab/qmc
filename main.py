@@ -17,7 +17,8 @@ from pathlib import Path
 import exps
 from envs import *
 from models import GaussianPolicy, get_mlp
-from utils import set_seed, rollout, MPSampler, SeqSampler, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gradient, ArrayRQMCSampler, sort_by_optimal_value, sort_by_norm, multdim_sort, no_sort, random_permute, logger, debug, Config
+from utils import MPSampler, SeqSampler, ArrayRQMCSampler, VecSampler, rollout
+from utils import set_seed, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gradient, sort_by_optimal_value, sort_by_norm, multdim_sort, no_sort, random_permute, logger, debug, Config, HorizonWrapper
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
@@ -26,16 +27,15 @@ Config.DEBUG = True
 
 # TODO:
 # (done) implement discount
+# async vec env, batch action
 
-
-### move template to a separate function ###
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--task',
         choices=['cost', 'grad', 'learn'],
         default='learn')
-    parser.add_argument('--env', choices=['lqr', 'cartpole', 'ant'], default='lqr')
+    parser.add_argument('--env', choices=['lqr', 'cartpole', 'swimmer', 'ant'], default='lqr')
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
     parser.add_argument('--init_scale', type=float, default=3.0)
     parser.add_argument('--PQ_kappa', type=float, default=3.0)
@@ -47,6 +47,7 @@ def parse_args(args=None):
     parser.add_argument('--n_iters', type=int, default=200, help='number of iterations of training')
     parser.add_argument('-lr', type=float, default=5e-5)
     parser.add_argument('--init_policy', choices=['optimal', 'linear', 'linear_bias', 'mlp'], default='linear')
+    parser.add_argument('--hidden_sizes', nargs='+', type=int, default=[16])
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--show_fig', action='store_true')
     parser.add_argument('--save_fig', type=str, default=None)
@@ -55,6 +56,7 @@ def parse_args(args=None):
     parser.add_argument('--max_seed', type=int, default=100)
     parser.add_argument('--n_workers', type=int, default=1)
     parser.add_argument('--save_fn', type=str, default=None)
+    parser.add_argument('--cpu', action='store_true')
     args = exps.parse_args(parser, args)
     return args
 
@@ -77,9 +79,12 @@ def get_env(args):
             lims=100,
         )
     elif args.env == 'cartpole':
-        env = CartPoleContinuousEnv()
-    elif args.env == 'gym':
-        env = gym.make('Ant-v2')
+        env = HorizonWrapper(CartPoleContinuousEnv(), args.H)
+        #env = CartPoleContinuousEnv()
+    elif args.env == 'ant':
+        env = HorizonWrapper(gym.make('Ant-v2'), args.H)
+    elif args.env == 'swimmer':
+        env = HorizonWrapper(gym.make('Swimmer-v2'), args.H)
     else:
         raise Exception('unsupported lqr env')
     return env
@@ -100,7 +105,7 @@ def get_policy(args, env):
         mean_network = nn.Linear(*K.shape[::-1], bias=True)
         mean_network.weight.data = tensor(K)
     elif args.init_policy == 'mlp':
-        mean_network = get_mlp((N, 16, M), gate=nn.Tanh)
+        mean_network = get_mlp((N,) + tuple(args.hidden_sizes) + (M,), gate=nn.Tanh)
     else:
         raise Exception('unsupported policy type')
     return GaussianPolicy(N, M, mean_network)
@@ -114,15 +119,7 @@ def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
         from scipy.stats import norm
         loc = torch.zeros(action_dim)
         scale = torch.ones(action_dim)
-        noises = np.asarray([Normal_RQMC(loc, scale).sample(torch.Size([n_trajs])).data.numpy() for _ in range(n_steps)]).transpose(1, 0, 2)
-
-        #noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([n_trajs])).data.numpy().reshape(n_trajs, 1, action_dim)
-        #noises = norm.ppf((noises + np.random.rand(n_trajs, n_steps, action_dim)) % 1.0) # should equal to random
-
-        #noises = sorted(list(Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([n_trajs])).data.numpy().reshape(n_trajs, 1, action_dim + 1)), key=lambda x: x[0][0]) # sort 1 dim?
-        #noises = np.array(noises)[:, :, 1:]
-        #noises = norm.ppf((noises + np.random.rand(1, n_steps, action_dim)) % 1.0)
-        #noises = norm.ppf((noises + np.random.rand(1, n_steps, 1)) % 1.0) # not correct
+        noises = np.asarray([Normal_RQMC(loc, scale).sample(torch.Size([n_trajs])).data.numpy() for _ in range(n_steps)]).reshape(n_steps, n_trajs, action_dim).transpose(1, 0, 2)
     else:
         raise Exception('unknown rqmc type')
     return noises
@@ -319,10 +316,13 @@ def compare_grad(args):
 def learning(args):
     set_seed(args.seed)
     env = get_env(args)
-    #seq_sampler = MPSampler(env, args.n_workers) # mp
-    seq_sampler = SeqSampler(env) # sequential
+    if Config.DEVICE.type == 'cpu': 
+        sampler = MPSampler(env, args.n_workers) # mp
+    else:
+        sampler = VecSampler(env, args.n_trajs) # a simplied version where the number of workers == the number of trajs
+        #sampler = SeqSampler(env) # sequential
     sort_f = get_sorter(args.sorter[0], env)
-    vec_sampler = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f)
+    arqmc_sampler = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f)
     init_policy = get_policy(args, env)
     out_set = set()
     def train(name, loss_fn, init_policy, noise_type='mc', n_iters=None):
@@ -348,9 +348,10 @@ def learning(args):
             else:
                 raise Exception('unknown sequence type')
             if noise_type in ['mc', 'rqmc']:
-                data = seq_sampler.sample(policy, noises)
+                data = sampler.sample(policy, noises)
             else:
-                data = vec_sampler.sample(policy, noises)
+                data = arqmc_sampler.sample(policy, noises)
+            if isinstance(data[0], dict): # from arrayrqmcsampler
                 data = [(np.asarray(d['states']), np.asarray(d['actions']), np.asarray(d['rewards'])) for d in data]
             for traj in data:
                 states, actions, rewards = traj[:3]
@@ -367,18 +368,14 @@ def learning(args):
                 #grad = np.array(policy.mean.weight.grad.cpu().numpy())
                 #logger.info(np.linalg.norm(grad - expected_grad))
 
-            #with debug('max value in policy parameters'):   
-                #print('mean max:', np.abs(policy._mean.weight.detach().cpu().numpy()).max()) 
-                #print('std max:', np.abs(policy._std.detach().cpu().numpy()).max())
-
             optim.step()
             all_returns.append(np.mean(returns))
             prog.set_postfix(ret=all_returns[-1])
         return np.asarray(all_returns)
     results = dict(
+        arqmc=train('arqmc', variance_reduced_loss, init_policy, noise_type='arqmc'),
         mc=train('mc', variance_reduced_loss, init_policy, noise_type='mc'),
         rqmc=train('rqmc', variance_reduced_loss, init_policy, noise_type='rqmc'),
-        arqmc=train('arqmc', variance_reduced_loss, init_policy, noise_type='arqmc'),
     )
     if args.env in LQR_ENVS:
         results['optimal'] = train('optimal', no_loss, get_policy(argparse.Namespace(init_policy='optimal'), env), n_iters=1).repeat(args.n_iters)
@@ -395,9 +392,11 @@ def learning(args):
     return results, info
 
 def main(args=None):
-    #select_device(0 if torch.cuda.is_available() else -1)
-    select_device(-1)
     args = parse_args(args)
+
+    select_device(0 if torch.cuda.is_available() and not args.cpu else -1)
+    #select_device(-1)
+
     if args.task == 'learn':
         exp_f = learning
     elif args.task == 'cost':
