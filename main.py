@@ -56,6 +56,7 @@ def parse_args(args=None):
     parser.add_argument('--max_seed', type=int, default=100)
     parser.add_argument('--n_workers', type=int, default=1)
     parser.add_argument('--save_fn', type=str, default=None)
+    parser.add_argument('--cpu', action='store_true')
     args = exps.parse_args(parser, args)
     return args
 
@@ -389,9 +390,11 @@ def learning(args):
     return results, info
 
 def main(args=None):
-    select_device(0 if torch.cuda.is_available() else -1)
-    #select_device(-1)
     args = parse_args(args)
+
+    select_device(0 if torch.cuda.is_available() and not args.cpu else -1)
+    #select_device(-1)
+
     if args.task == 'learn':
         exp_f = learning
     elif args.task == 'cost':

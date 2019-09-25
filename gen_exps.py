@@ -211,6 +211,7 @@ def compare_on_cartpole():
         '--hidden_sizes': (32, 32),
         '--mode': 'seeds',
         '--n_seeds': 3,
+        '-H': 100,
     }
     toggles = []
     variants = {

@@ -20,6 +20,7 @@ from pathlib import Path
 from termcolor import colored
 from scipy.stats import norm
 from contextlib import contextmanager
+from multiprocessing.pool import ThreadPool
 
 from rqmc_distributions import dist_rqmc
 
@@ -318,6 +319,7 @@ class ArrayRQMCSampler:
         self.n_envs = n_envs
         self.sort_f = sort_f
         #self.pool = mp.Pool(8)
+        #self.pool = ThreadPool(8)
         
     def sample(self, policy, noises):
         assert noises.shape[0] == self.n_envs and noises.shape[2] == self.envs[0].action_space.shape[0]
@@ -331,18 +333,22 @@ class ArrayRQMCSampler:
             pairs = list(zip(envs, states, dones, data))
             pairs_to_sort = [p for p in pairs if not p[2]]
             pairs_done = [p for p in pairs if p[2]]
+            #n_valid = len(pairs_to_sort)
             envs, states, dones, data = zip(*( self.sort_f(pairs_to_sort) + pairs_done ))
             states, dones, data = list(states), list(dones), list(data)
 
-            actions = policy(states, noises[:, j])
-            # test whether this is faster, this is wrong due to done
-            #next_states, rewards, dones, _ = zip(*self.pool.starmap(_one_step, zip(envs, actions)))
-            #for i in range(len(envs)):
-                #data[i]['states'].append(states[i])
-                #data[i]['actions'].append(actions[i])
-                #data[i]['rewards'].append(rewards[i])
-            #states = next_states
+            ''' # a multithreading version, turn out to be slower
+            actions = policy(states[:n_valid], noises[:n_valid, j])
+            valid_states, valid_rewards, valid_dones, _ = zip(*self.pool.starmap(_one_step, zip(envs[:n_valid], actions)))
+            for i in range(n_valid):
+                data[i]['states'].append(states[i])
+                data[i]['actions'].append(actions[i])
+                data[i]['rewards'].append(valid_rewards[i])
+            states[:n_valid] = valid_states
+            dones[:n_valid] = valid_dones
+            '''
 
+            actions = policy(states, noises[:, j])
             for i, env in enumerate(envs):
                 if dones[i]: break
                 state, r, done, _ = env.step(actions[i])
