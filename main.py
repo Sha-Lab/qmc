@@ -57,7 +57,7 @@ def parse_args(args=None):
     parser.add_argument('--n_workers', type=int, default=1)
     parser.add_argument('--save_fn', type=str, default=None)
     parser.add_argument('--cpu', action='store_true')
-    args = exps.parse_args(parser, args)
+    args = exps.parse_args(parser, args, exp_name_attr='save_fn')
     return args
 
 LQR_ENVS = ['lqr']

@@ -135,22 +135,20 @@ def compare_on_swimmer():
     args = []
     kwargs = {
         '--env': 'swimmer',
-        '--n_iters': 2000,
+        '--n_iters': 3000,
         '--sorter': 'group',
         '--n_workers': 8,
         '--hidden_sizes': (32, 32),
         '--mode': 'seeds',
-        '--n_seeds': 5,
-        '-H': 100,
+        '--n_seeds': 20,
+        '-H': 150,
+        '--save_fn': 'log/compare_on_swimmer/H_[H]-traj_[n_trajs]',
     }
     toggles = []
     variants = {
         '--n_trajs': [64, 128, 256],
     }
-    def post_option(toggle, variant):
-        variant['--save_fn'] = 'log/{}/traj_{}'.format(exp_name, variant['--n_trajs'])
-        return toggle, variant
-    generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants, post_option=post_option, shuffle=False)
+    generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants, shuffle=False)
 
 
 if __name__ == "__main__":
