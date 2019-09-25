@@ -321,7 +321,7 @@ def learning(args):
     env = get_env(args)
     #seq_sampler = MPSampler(env, args.n_workers) # mp
     seq_sampler = SeqSampler(env) # sequential
-    sort_f = get_sorter(args, env)
+    sort_f = get_sorter(args.sorter[0], env)
     vec_sampler = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f)
     init_policy = get_policy(args, env)
     out_set = set()
