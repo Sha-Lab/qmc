@@ -200,6 +200,28 @@ def compare_arqmc_sorter_on_cost():
         return toggle, variant
     generate_args('exps/{}'.format(name), args, kwargs, toggles, variants, post_option=post_option, shuffle=False)
 
+@cmd()
+def compare_on_cartpole():
+    args = []
+    kwargs = {
+        '--env': 'cartpole',
+        '--n_iters': 500,
+        '--sorter': 'norm',
+        '--n_workers': 8,
+        '--hidden_sizes': (32, 32),
+        '--mode': 'seeds',
+        '--n_seeds': 3,
+    }
+    toggles = []
+    variants = {
+        '--n_trajs': [64, 128, 256],
+    }
+    def post_option(toggle, variant):
+        variant['--save_fn'] = 'log/compare_on_cartpole/traj_{}'.format(variant['--n_trajs'])
+        return toggle, variant
+    generate_args('exps/compare_on_cartpole', args, kwargs, toggles, variants, post_option=post_option, shuffle=False)
+
+
 if __name__ == "__main__":
     with launch_ipdb_on_exception():
         cmd_run()

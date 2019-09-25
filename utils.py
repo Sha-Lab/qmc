@@ -1,3 +1,4 @@
+import time
 import gym
 import sys
 import copy
@@ -245,7 +246,7 @@ def np_check_numerics(*args):
     return all([np.all(np.isfinite(x)) for x in args])
 
 # environment might has different random seed
-def rollout(env, policy, noises, deterministic=False):
+def rollout(env, policy, noises):
     states = []
     actions = []
     rewards = []
@@ -254,12 +255,8 @@ def rollout(env, policy, noises, deterministic=False):
     done = False
     s = env.reset()
     cur_step = 0
-    if deterministic: policy.set_noise(noises)
     while not done:
-        if deterministic:
-            a = policy(s)
-        else:
-            a = policy(s, noises[cur_step])
+        a = policy(s, noises[cur_step])
         next_s, r, done, _ = env.step(a)
         states.append(s)
         actions.append(a)
@@ -269,46 +266,11 @@ def rollout(env, policy, noises, deterministic=False):
         s = next_s
         cur_step += 1
     return np.asarray(states), np.asarray(actions), np.asarray(rewards), np.asarray(next_states), np.asarray(terminals)
-  
-# sampler helper function
-def sample_init(env, init_seeds):
-    global sample_env
-    sample_env = env
-    seed = init_seeds.get()
-    env.seed(seed)
-
-def stochastic_policy_rollout(policy, noises):
-    global sample_env
-    return rollout(sample_env, policy, noises)
-
-def deterministic_policy_rollout(policy, noises):
-    global sample_env
-    return rollout(sample_env, policy, noises, deterministic=True)
-
-# initializer take init_queue as input
-# This is just for rollout
-class MPSampler:
-    def __init__(self, env, n_processes=0, deterministic=False):
-        if n_processes <= 0: n_processes = mp.cpu_count()
-        init_seeds = mp.Queue()
-        for seed in np.random.randint(Config.SEED_RANGE, size=n_processes): init_seeds.put(int(seed)) # initseeds
-        self.pool = mp.Pool(n_processes, sample_init, (env, init_seeds))
-        if deterministic:
-            self.rollout_f = deterministic_policy_rollout
-        else:
-            self.rollout_f = stochastic_policy_rollout
-        
-    def sample(self, policy, noises): # might cost problems
-        return self.pool.starmap_async(self.rollout_f, [(policy, noise) for noise in noises]).get()
-
-    def __del__(self):
-        self.pool.close()
-        self.pool.join()
 
 class HorizonWrapper(gym.Wrapper):
-    def __init__(self, env, horizon):
+    def __init__(self, env, max_steps):
         super().__init__(env)
-        self.horizon = horizon
+        self.max_steps = max_steps
 
     def reset(self):
         self.t = 0
@@ -317,7 +279,7 @@ class HorizonWrapper(gym.Wrapper):
     def step(self, action):
         next_state, reward, done, info = self.env.step(action)
         self.t += 1
-        if self.t == self.horizon: done = True
+        if self.t == self.max_steps: done = True
         return next_state, reward, done, info
 
 class LastWrapper(gym.Wrapper):
@@ -343,6 +305,9 @@ class EnvWrapper(gym.Wrapper):
     def last(self):
         return LastWrapper(self)
 
+def _one_step(env, action):
+    return env.step(action)
+
 # sort_f takes (env, state, done, data)
 class ArrayRQMCSampler:
     def __init__(self, env, n_envs, sort_f):
@@ -352,6 +317,7 @@ class ArrayRQMCSampler:
         self.envs = envs
         self.n_envs = n_envs
         self.sort_f = sort_f
+        #self.pool = mp.Pool(8)
         
     def sample(self, policy, noises):
         assert noises.shape[0] == self.n_envs and noises.shape[2] == self.envs[0].action_space.shape[0]
@@ -367,25 +333,65 @@ class ArrayRQMCSampler:
             pairs_done = [p for p in pairs if p[2]]
             envs, states, dones, data = zip(*( self.sort_f(pairs_to_sort) + pairs_done ))
             states, dones, data = list(states), list(dones), list(data)
+
+            actions = policy(states, noises[:, j])
+            # test whether this is faster, this is wrong due to done
+            #next_states, rewards, dones, _ = zip(*self.pool.starmap(_one_step, zip(envs, actions)))
+            #for i in range(len(envs)):
+                #data[i]['states'].append(states[i])
+                #data[i]['actions'].append(actions[i])
+                #data[i]['rewards'].append(rewards[i])
+            #states = next_states
+
             for i, env in enumerate(envs):
                 if dones[i]: break
-                action = policy(states[i], noises[i][j])
-                state, r, done, _ = env.step(action)
+                state, r, done, _ = env.step(actions[i])
                 data[i]['states'].append(states[i])
-                data[i]['actions'].append(action)
+                data[i]['actions'].append(actions[i])
                 data[i]['rewards'].append(r)
                 states[i] = state
                 dones[i] = done
         return data
 
+class VecSampler(ArrayRQMCSampler):
+    def __init__(self, env, n_envs):
+        super().__init__(env, n_envs, no_sort)
+
+# sampler helper function
+def mp_sampler_init(env, init_seeds):
+    global sample_env
+    sample_env = env
+    seed = init_seeds.get()
+    env.seed(seed)
+
+def stochastic_policy_rollout(policy, noises):
+    global sample_env
+    return rollout(sample_env, policy, noises)
+
+# initializer take init_queue as input
+# This is just for rollout
+class MPSampler:
+    def __init__(self, env, n_processes=0):
+        if n_processes <= 0: n_processes = mp.cpu_count()
+        init_seeds = mp.Queue()
+        for seed in np.random.randint(Config.SEED_RANGE, size=n_processes): init_seeds.put(int(seed)) # initseeds
+        self.pool = mp.Pool(n_processes, mp_sampler_init, (env, init_seeds))
+        self.rollout_f = stochastic_policy_rollout
+        
+    def sample(self, policy, noises): # might cost problems
+        return self.pool.starmap_async(self.rollout_f, [(policy, noise) for noise in noises]).get()
+
+    def __del__(self):
+        self.pool.close()
+        self.pool.join()
+
 class SeqSampler:
-    def __init__(self, env, deterministic=False):
+    def __init__(self, env):
         self.env = env
         env.seed(int(np.random.randint(Config.SEED_RANGE)))
-        self.deterministic = deterministic
 
     def sample(self, policy, noises):
-        return [rollout(self.env, policy, noise, deterministic=self.deterministic) for noise in noises]
+        return [rollout(self.env, policy, noise) for noise in noises]
 
 def cumulative_return(rewards, discount):
     returns = []
