@@ -35,7 +35,7 @@ def parse_args(args=None):
         '--task',
         choices=['cost', 'grad', 'learn'],
         default='learn')
-    parser.add_argument('--env', choices=['lqr', 'cartpole', 'ant'], default='lqr')
+    parser.add_argument('--env', choices=['lqr', 'cartpole', 'swimmer', 'ant'], default='lqr')
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
     parser.add_argument('--init_scale', type=float, default=3.0)
     parser.add_argument('--PQ_kappa', type=float, default=3.0)
@@ -83,6 +83,8 @@ def get_env(args):
         #env = CartPoleContinuousEnv()
     elif args.env == 'ant':
         env = HorizonWrapper(gym.make('Ant-v2'), args.H)
+    elif args.env == 'swimmer':
+        env = HorizonWrapper(gym.make('Swimmer-v2'), args.H)
     else:
         raise Exception('unsupported lqr env')
     return env
