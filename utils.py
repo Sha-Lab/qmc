@@ -76,6 +76,7 @@ class Logger:
     def log(self, info, name=None, outs=None):
         if name is None:
             name = self.default_logger
+            assert self.default_logger is not None, 'no default logger, please specify the logger when using logger.log'
         if name is not None: outs = self.logger[name]
         for out in outs:
             #print >> out, info # py2.7 only

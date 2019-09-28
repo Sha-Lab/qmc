@@ -137,6 +137,7 @@ def compare_cost_on_brownian():
         '--env': 'brownian',
         '--exp_name': '{}/H_[horizon]-T[n_trajs]'.format(exp_name),
         '--n_runs': 30,
+        '--seed': 0,
     }
     toggles = []
     variants = {

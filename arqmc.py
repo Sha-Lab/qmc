@@ -63,7 +63,7 @@ def brownian(args):
                 returns.append(rs)
             res = np.mean(returns)
             errors.append(np.abs(ground_truth - res))
-        logger.log('mc error: {}({})'.format(np.mean(errors), np.std(errors)))
+        logger.log('mc error: {}({})'.format(np.mean(errors), np.std(errors)), name='out')
     # rqmc
     if 'rqmc' in args.algos:
         errors = []
@@ -84,7 +84,7 @@ def brownian(args):
                 returns.append(rs)
             res = np.mean(returns)
             errors.append(np.abs(ground_truth - res))
-        logger.log('rqmc error: {}({})'.format(res, np.mean(errors), np.std(errors)))
+        logger.log('rqmc error: {}({})'.format(res, np.mean(errors), np.std(errors)), name='out')
     # array rqmc
     if 'arqmc' in args.algos:
         errors = []
@@ -105,7 +105,7 @@ def brownian(args):
                     dones[i] = done
                     returns[i] += r
             errors.append(np.abs(ground_truth - np.mean(returns)))
-        logger.log('array rqmc error: {}({})'.format(np.mean(errors), np.std(errors)))
+        logger.log('array rqmc error: {}({})'.format(np.mean(errors), np.std(errors)), name='out')
 
 def get_sorter(sorter, env):
     if sorter == 'value':
