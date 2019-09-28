@@ -84,7 +84,7 @@ def brownian(args):
                 returns.append(rs)
             res = np.mean(returns)
             errors.append(np.abs(ground_truth - res))
-        logger.log('rqmc error: {}({})'.format(res, np.mean(errors), np.std(errors)), name='out')
+        logger.log('rqmc error: {}({})'.format(np.mean(errors), np.std(errors)), name='out')
     # array rqmc
     if 'arqmc' in args.algos:
         errors = []
