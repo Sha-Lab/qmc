@@ -3,30 +3,7 @@ from exps import cmd, cmd_run, generate_args
 
 
 @cmd()
-def search_network_std(touch: int=1, shuffle: int=0):
-    variants = {
-        '--n_trajs': [60, 100, 150, 200, 300],
-        '-lr': [0.0001, 0.0005, 0.001],
-        '-H': [5, 10, 15],
-        '--init_scale': [1.0, 3.0, 5.0],
-    }
-    args = []
-    kwargs = {
-        '--task': 'learn',
-        '--n_iters': 300,
-        '--n_seeds': 10,
-        '--max_seed': 30,
-        '--mode': 'collect',
-        '--init_policy': 'mlp',
-        '--n_workers': 8,
-    }
-    def post_variant(variant):
-        variant['--save_fn'] = 'data/search_network_std/{}-{}-{}-{}'.format(*[variant[k] for k in ['--n_trajs', '-lr', '-H', '--init_scale']])
-        return variant
-    generate_args('exps/search_network_std', args, kwargs, variants, post_variant=post_variant, shuffle=shuffle)
-
-@cmd()
-def search_vpg_trajs():
+def search_vpg_on_trajs():
     variants = {
         '--n_trajs': [50, 60, 70, 80, 90, 100, 150, 200],
     }
@@ -152,6 +129,20 @@ def compare_on_swimmer():
         return toggle, variant
     generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants, post_option=post_option, shuffle=False)
 
+@cmd() # --env brownian --horizon 10 --n_trajs 32
+def compare_cost_on_brownian():
+    exp_name = 'compare_cost_on_brownian'
+    args = []
+    kwargs = {
+        '--env': 'brownian',
+        '--exp_name': 'H_[horizon]-T[n_trajs]'
+    }
+    toggles = []
+    variants = {
+        '--horizon': [10, 20, 40],
+        '--n_trajs': [32, 128, 256, 512, 1024],
+    }
+    generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)
 
 if __name__ == "__main__":
     with launch_ipdb_on_exception():
