@@ -50,6 +50,8 @@ def parse_args(args=None):
     parser.add_argument('--n_iters', type=int, default=200, help='number of iterations of training')
     parser.add_argument('-lr', type=float, default=5e-5)
     parser.add_argument('--init_policy', choices=['optimal', 'linear', 'linear_bias', 'mlp'], default='linear')
+    parser.add_argument('--fix_std', action='store_true')
+    parser.add_argument('--gate_output', action='store_true')
     parser.add_argument('--hidden_sizes', nargs='+', type=int, default=[16])
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--show_fig', action='store_true')
@@ -112,7 +114,7 @@ def get_policy(args, env):
         mean_network = get_mlp((N,) + tuple(args.hidden_sizes) + (M,), gate=nn.Tanh)
     else:
         raise Exception('unsupported policy type')
-    return GaussianPolicy(N, M, mean_network)
+    return GaussianPolicy(N, M, mean_network, learn_std=not args.fix_std, gate_output=args.gate_output)
 
 def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
     if noise_type == 'trajwise':
@@ -393,6 +395,7 @@ def main(args=None):
 
     select_device(0 if torch.cuda.is_available() and not args.cpu else -1)
     #select_device(-1)
+    logger.prog('device: {}'.format(Config.DEVICE))
 
     if args.task == 'learn':
         exp_f = learning

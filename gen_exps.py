@@ -108,19 +108,19 @@ def compare_on_cartpole():
     generate_args('exps/compare_on_cartpole', args, kwargs, toggles, variants, post_option=post_option, shuffle=False)
 
 @cmd()
-def compare_on_swimmer():
+def compare_on_swimmer_fix_std():
     exp_name = get_function_name()
-    args = []
+    args = ['--fix_std']
     kwargs = {
         '--env': 'swimmer',
-        '--n_iters': 3000,
+        '--n_iters': 2000,
         '--sorter': 'norm',
         '--n_workers': 8,
-        '--hidden_sizes': (32, 32),
+        '--hidden_sizes': (16, 16),
         '--mode': 'seeds',
         '--n_seeds': 20,
-        '-H': 150,
-        '--save_fn': 'log/compare_on_swimmer/H_[H]-traj_[n_trajs]_s[sorter]',
+        '-H': 100,
+        '--save_fn': 'log/{}/H_[H]-traj_[n_trajs]_s[sorter]'.format(exp_name),
     }
     toggles = []
     variants = {

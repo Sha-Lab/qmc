@@ -40,7 +40,7 @@ class GaussianPolicy(Policy):
         super().__init__()
         self._mean = mean_network
         if learn_std: self._std = nn.Parameter(torch.zeros(action_dim))
-        else: self._std = torch.ones(action_dim)
+        else: self._std = tensor(np.ones(action_dim))
         self.gate_output = gate_output
         self.learn_std = learn_std
         self.to(Config.DEVICE)
