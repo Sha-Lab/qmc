@@ -63,7 +63,7 @@ def brownian(args):
                 returns.append(rs)
             res = np.mean(returns)
             errors.append(np.abs(ground_truth - res))
-        logger.log('mc: {}, error: {}({})'.format(res, np.mean(errors), np.std(errors)))
+        logger.log('mc error: {}({})'.format(np.mean(errors), np.std(errors)))
     # rqmc
     if 'rqmc' in args.algos:
         errors = []
@@ -72,7 +72,6 @@ def brownian(args):
             loc = torch.zeros(args.horizon)
             scale = torch.ones(args.horizon)
             actions = Normal_RQMC(loc, scale, scrambled=True).sample(torch.Size([args.n_trajs])).data.numpy()
-            #actions = (chaospy.distributions.sampler.sequences.korobov.create_korobov_samples(args.horizon, 1031, base=307)[:args.n_trajs] + np.random.rand(1, args.horizon)) % 1.0
             
             for i in range(args.n_trajs):
                 rs = 0.0
@@ -85,20 +84,12 @@ def brownian(args):
                 returns.append(rs)
             res = np.mean(returns)
             errors.append(np.abs(ground_truth - res))
-        logger.log('rqmc: {}, error: {}({})'.format(res, np.mean(errors), np.std(errors)))
+        logger.log('rqmc error: {}({})'.format(res, np.mean(errors), np.std(errors)))
     # array rqmc
     if 'arqmc' in args.algos:
         errors = []
         for _ in range(args.n_runs):
             returns = [0.0 for _ in range(args.n_trajs)]
-            #loc = torch.zeros(1+1)
-            #scale = torch.ones(1+1)
-            #noises = sorted(list(Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()), key=lambda x: x[0])
-            #noises = np.array(noises)[:, 1:]
-
-            #noises = Uniform_RQMC(torch.zeros(1), torch.ones(1), scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()
-
-            #noises = chaospy.distributions.sampler.sequences.korobov.create_korobov_samples(1, args.n_trajs)
             envs = [Brownian(args.gamma) for _ in range(args.n_trajs)]
             states = [env.reset() for env in envs]
             dones = [False for _ in range(args.n_trajs)]
@@ -114,7 +105,7 @@ def brownian(args):
                     dones[i] = done
                     returns[i] += r
             errors.append(np.abs(ground_truth - np.mean(returns)))
-        logger.log('array rqmc: {}, error: {}({})'.format(res, np.mean(errors), np.std(errors)))
+        logger.log('array rqmc error: {}({})'.format(np.mean(errors), np.std(errors)))
 
 def get_sorter(sorter, env):
     if sorter == 'value':
@@ -172,7 +163,7 @@ def lqr(args):
                 returns.append(rs)
             res = np.mean(returns)
             errors.append(np.abs(ground_truth - res))
-        logger.log('mc error: {}'.format(np.mean(errors)), name='out')
+        logger.log('mc error: {}({})'.format(np.mean(errors), np.std(errors)), name='out')
     # rqmc
     if 'rqmc' in args.algos:
         errors = []
@@ -181,8 +172,6 @@ def lqr(args):
             loc = torch.zeros(env.M * args.horizon)
             scale = torch.ones(env.M * args.horizon)
             noises = Normal_RQMC(loc, scale, scrambled=True).sample(torch.Size([args.n_trajs])).numpy().reshape(args.n_trajs, args.horizon, env.M)
-            #noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy().reshape(args.n_trajs, args.horizon, env.M)
-            #noises = norm.ppf((noises + np.random.rand(1, args.horizon, env.M)) % 1.0)
             for i in range(args.n_trajs):
                 rs = 0.0
                 state = env.reset()
@@ -194,7 +183,7 @@ def lqr(args):
                 returns.append(rs)
             res = np.mean(returns)
             errors.append(np.abs(ground_truth - res))
-        logger.log('rqmc error: {}'.format(np.mean(errors)), name='out')
+        logger.log('rqmc error: {}({})'.format(np.mean(errors), np.std(errors)), name='out')
     # array rqmc
     if 'arqmc' in args.algos:
         for sorter_type in args.sorter:
@@ -220,7 +209,7 @@ def lqr(args):
                         dones[i] = done
                         returns[i] += r
                 errors.append(np.abs(ground_truth - np.mean(returns)))
-            logger.log('array rqmc error: {}'.format(np.mean(errors)), name='out')
+            logger.log('array rqmc error ({}): {}({})'.format(sorter_type, np.mean(errors), np.std(errors)), name='out')
 
 def main(args=None):
     args = parse_args(args)

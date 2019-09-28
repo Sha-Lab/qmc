@@ -129,21 +129,22 @@ def compare_on_swimmer():
     exp_path = None # 'exps/{}'.format(exp_name)
     generate_args(exp_path, args, kwargs, toggles, variants, shuffle=False)
 
-@cmd() # --env brownian --horizon 10 --n_trajs 32
+@cmd()
 def compare_cost_on_brownian():
     exp_name = get_function_name()
     args = []
     kwargs = {
         '--env': 'brownian',
         '--exp_name': '{}/H_[horizon]-T[n_trajs]'.format(exp_name),
+        '--n_runs': 30,
     }
     toggles = []
     variants = {
         '--horizon': [10, 20, 40],
-        '--n_trajs': [32, 128, 256, 512, 1024],
+        '--n_trajs': [32, 64, 128, 256, 512, 1024],
     }
     generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)
-
+   
 @cmd()
 def compare_cost_on_lqr():
     exp_name = get_function_name()
@@ -151,34 +152,16 @@ def compare_cost_on_lqr():
     kwargs = {
         '--env': 'lqr',
         '--exp_name': '{}/H_[horizon]-T[n_trajs]'.format(exp_name),
-        '--n_runs': 10,
-    }
-    toggles = []
-    variants = {
-        '--horizon': [10, 20, 40],
-        '--n_trajs': [32, 128, 256, 512, 1024],
-    }
-    generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)
-   
-@cmd()
-def compare_arqmc_sorter_on_lqr():
-    exp_name = get_function_name()
-    args = []
-    kwargs = {
-        '--env': 'lqr',
-        '--exp_name': '{}/H_[horizon]-T[n_trajs]'.format(exp_name),
-        '--n_runs': 10,
+        '--n_runs': 30,
         '--seed': 0,
-        '--algos': 'arqmc',
         '--sorter': 'value norm group permute',
     }
     toggles = []
     variants = {
         '--horizon': [10, 20, 40],
-        '--n_trajs': [32, 128, 256, 512, 1024],
+        '--n_trajs': [32, 64, 128, 256, 512, 1024],
     }
-    #generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)
-    generate_args(None, args, kwargs, toggles, variants)
+    generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)
 
 
 
