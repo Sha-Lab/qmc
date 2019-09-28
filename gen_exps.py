@@ -1,5 +1,6 @@
+import inspect
 from ipdb import launch_ipdb_on_exception
-from exps import cmd, cmd_run, generate_args
+from exps import cmd, cmd_run, generate_args, get_function_name
 
 
 @cmd()
@@ -108,7 +109,7 @@ def compare_on_cartpole():
 
 @cmd()
 def compare_on_swimmer():
-    exp_name = 'compare_on_swimmer'
+    exp_name = get_function_name()
     args = []
     kwargs = {
         '--env': 'swimmer',
@@ -129,7 +130,7 @@ def compare_on_swimmer():
 
 @cmd() # --env brownian --horizon 10 --n_trajs 32
 def compare_cost_on_brownian():
-    exp_name = 'compare_cost_on_brownian'
+    exp_name = get_function_name()
     args = []
     kwargs = {
         '--env': 'brownian',
@@ -144,7 +145,7 @@ def compare_cost_on_brownian():
 
 @cmd()
 def compare_cost_on_lqr():
-    exp_name = 'compare_cost_on_lqr'
+    exp_name = get_function_name()
     args = []
     kwargs = {
         '--env': 'lqr',
@@ -158,6 +159,27 @@ def compare_cost_on_lqr():
     }
     generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)
    
+@cmd()
+def compare_arqmc_sorter_on_lqr():
+    exp_name = get_function_name()
+    args = []
+    kwargs = {
+        '--env': 'lqr',
+        '--exp_name': '{}/H_[horizon]-T[n_trajs]'.format(exp_name),
+        '--n_runs': 10,
+        '--seed': 0,
+        '--algos': 'arqmc',
+        '--sorter': 'value norm group permute',
+    }
+    toggles = []
+    variants = {
+        '--horizon': [10, 20, 40],
+        '--n_trajs': [32, 128, 256, 512, 1024],
+    }
+    #generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)
+    generate_args(None, args, kwargs, toggles, variants)
+
+
 
 if __name__ == "__main__":
     with launch_ipdb_on_exception():

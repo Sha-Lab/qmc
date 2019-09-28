@@ -28,6 +28,11 @@ def cmd(name=None):
         return g
     return f
 
+# get the function name the current code is in
+# actually return the caller's name, because directly getting the name will be 'get_function_name'
+def get_function_name():
+    return inspect.stack()[1][3]
+
 # parse command line arguments into function input (args, kwargs)
 def parse_args_as_func(argv):
     args = []

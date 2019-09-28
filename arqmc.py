@@ -27,7 +27,7 @@ def parse_args(args=None):
     parser.add_argument('--horizon', type=int, default=10)
     parser.add_argument('--n_runs', type=int, default=20)
     parser.add_argument('--gamma', type=float, default=1.0)
-    parser.add_argument('--sorter', default='value', choices=['value', 'norm', 'none', 'permute', 'group'])
+    parser.add_argument('--sorter', nargs='+', default='value', choices=['value', 'norm', 'none', 'permute', 'group'])
     parser.add_argument('--algos', type=str, nargs='+', default=['mc', 'rqmc', 'arqmc'])
     parser.add_argument('--exp_name', type=str, default=None)
     parser.add_argument('--seed', type=int, default=None)
@@ -63,7 +63,7 @@ def brownian(args):
                 returns.append(rs)
             res = np.mean(returns)
             errors.append(np.abs(ground_truth - res))
-        print('mc: {}, error: {}({})'.format(res, np.mean(errors), np.std(errors)))
+        logger.log('mc: {}, error: {}({})'.format(res, np.mean(errors), np.std(errors)))
     # rqmc
     if 'rqmc' in args.algos:
         errors = []
@@ -85,7 +85,7 @@ def brownian(args):
                 returns.append(rs)
             res = np.mean(returns)
             errors.append(np.abs(ground_truth - res))
-        print('rqmc: {}, error: {}({})'.format(res, np.mean(errors), np.std(errors)))
+        logger.log('rqmc: {}, error: {}({})'.format(res, np.mean(errors), np.std(errors)))
     # array rqmc
     if 'arqmc' in args.algos:
         errors = []
@@ -114,18 +114,18 @@ def brownian(args):
                     dones[i] = done
                     returns[i] += r
             errors.append(np.abs(ground_truth - np.mean(returns)))
-        print('array rqmc: {}, error: {}({})'.format(res, np.mean(errors), np.std(errors)))
+        logger.log('array rqmc: {}, error: {}({})'.format(res, np.mean(errors), np.std(errors)))
 
-def get_sorter(args, env):
-    if args.sorter == 'value':
+def get_sorter(sorter, env):
+    if sorter == 'value':
         return lambda pairs: sorted(pairs, key=sort_by_optimal_value(env))
-    elif args.sorter == 'norm':
+    elif sorter == 'norm':
         return lambda pairs: sorted(pairs, key=sort_by_norm(env))
-    elif args.sorter == 'permute':
+    elif sorter == 'permute':
         return random_permute
-    elif args.sorter == 'none':
+    elif sorter == 'none':
         return no_sort
-    elif args.sorter == 'group':
+    elif sorter == 'group':
         return multdim_sort
     else:
         raise Exception('unknown sorter')
@@ -197,35 +197,30 @@ def lqr(args):
         logger.log('rqmc error: {}'.format(np.mean(errors)), name='out')
     # array rqmc
     if 'arqmc' in args.algos:
-        sorter = get_sorter(args, env)
-        errors = []
-        for _ in range(args.n_runs):
-            #loc = torch.zeros(env.M)
-            #scale = torch.ones(env.M)
-            #noises = Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()
-            #biases = np.random.rand(args.horizon, env.M)
-            #assert np.all(np.isfinite(noises))
-            envs = [get_env() for _ in range(args.n_trajs)]
-            states = [env.reset() for env in envs]
-            dones = [False for _ in range(args.n_trajs)]
-            returns = [0.0 for _ in range(args.n_trajs)]
-            for j in range(args.horizon):
-                if np.all(dones): break
-                pairs = list(zip(envs, states, dones, returns))
-                pairs_to_sort = [p for p in pairs if not p[2]]
-                pairs_done = [p for p in pairs if p[2]]
-                envs, states, dones, returns = zip(*( sorter(pairs_to_sort) + pairs_done ))
-                states, dones, returns = list(states), list(dones), list(returns)
-                noises = Normal_RQMC(torch.zeros(env.M), torch.ones(env.M), scrambled=True).sample(torch.Size([args.n_trajs])).numpy()
-                for i, env in enumerate(envs):
-                    if dones[i]: break
-                    #noise = norm.ppf(np.clip((noises[i] + biases[j]) % 1.0, 1e-8, 1-1e-8))
-                    state, r, done, _ = env.step(get_action(states[i], K, noises[i]))
-                    states[i] = state
-                    dones[i] = done
-                    returns[i] += r
-            errors.append(np.abs(ground_truth - np.mean(returns)))
-        logger.log('array rqmc error: {}'.format(np.mean(errors)), name='out')
+        for sorter_type in args.sorter:
+            sorter = get_sorter(sorter_type, env)
+            errors = []
+            for _ in range(args.n_runs):
+                envs = [get_env() for _ in range(args.n_trajs)]
+                states = [env.reset() for env in envs]
+                dones = [False for _ in range(args.n_trajs)]
+                returns = [0.0 for _ in range(args.n_trajs)]
+                for j in range(args.horizon):
+                    if np.all(dones): break
+                    pairs = list(zip(envs, states, dones, returns))
+                    pairs_to_sort = [p for p in pairs if not p[2]]
+                    pairs_done = [p for p in pairs if p[2]]
+                    envs, states, dones, returns = zip(*( sorter(pairs_to_sort) + pairs_done ))
+                    states, dones, returns = list(states), list(dones), list(returns)
+                    noises = Normal_RQMC(torch.zeros(env.M), torch.ones(env.M), scrambled=True).sample(torch.Size([args.n_trajs])).numpy()
+                    for i, env in enumerate(envs):
+                        if dones[i]: break 
+                        state, r, done, _ = env.step(get_action(states[i], K, noises[i]))
+                        states[i] = state
+                        dones[i] = done
+                        returns[i] += r
+                errors.append(np.abs(ground_truth - np.mean(returns)))
+            logger.log('array rqmc error: {}'.format(np.mean(errors)), name='out')
 
 def main(args=None):
     args = parse_args(args)
