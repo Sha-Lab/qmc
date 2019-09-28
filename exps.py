@@ -120,6 +120,7 @@ def process_variants(variants):
     return total_variants
 
 # generate arguments by template
+# exp_path: the output file path, if None, output to stdout
 # args: shared positional arguemnts
 # kwargs: shared key word arguements
 # toggles: the flags that considered all subsets of used or not used
@@ -130,14 +131,22 @@ def process_variants(variants):
 def generate_args(exp_path, args, kwargs, toggles, variants, post_option=None, touch=True, shuffle=False):
     toggles = process_toggles(toggles)
     variants = process_variants(variants)
-    if shuffle: random.shuffle(variants)
-    if not Path(exp_path).parent.exists():
-        Path(exp_path).parent.mkdir(parents=True)
-    if touch: open(exp_path, 'w').close()
-    with open(exp_path, 'a+') as f:
-        for toggle, variant in product(toggles, variants):
-            if post_option: toggle, variant = post_option(toggle, variant)
-            dump_args(f, args + toggle, dict(list(kwargs.items())+list(variant.items())))
+    if post_option:
+        options = [post_option(toggle, variant) for toggle, variant in product(toggles, variants)]
+    else:
+        options = product(toggles, variants)
+    if shuffle:
+        random.shuffle(options)
+    if exp_path is None:
+        for toggle, variant in options:
+            dump_args(sys.stdout, args + toggle, dict(list(kwargs.items())+list(variant.items())))
+    else:
+        if not Path(exp_path).parent.exists():
+            Path(exp_path).parent.mkdir(parents=True)
+        if touch: open(exp_path, 'w').close()
+        with open(exp_path, 'a+') as f:
+            for toggle, variant in options:
+                dump_args(f, args + toggle, dict(list(kwargs.items())+list(variant.items())))
 
 ### end of gen exps ###
 
@@ -148,7 +157,10 @@ def parse_tag(tag_str, args):
     tag = []
     for group in groups:
         if group.startswith('['):
-            tag.append(str(getattr(args, group[1:-1])))
+            elem = getattr(args, group[1:-1])
+            if isinstance(elem, list): # expand list
+                elem = '_'.join(elem)
+            tag.append(str(elem))
         else:
             tag.append(group)
     return ''.join(tag)
@@ -164,7 +176,7 @@ def import_main(fn):
     finally:
         sys.path[:] = path # restore system path
 
-def is_git_diff():
+def is_git_diff(): # this is slow...
     return bool(subprocess.check_output(['git', 'diff']))
 
 def has_gpu():
