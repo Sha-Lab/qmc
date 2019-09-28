@@ -112,22 +112,20 @@ def compare_on_swimmer():
     args = []
     kwargs = {
         '--env': 'swimmer',
-        '--n_iters': 2000,
+        '--n_iters': 3000,
         '--sorter': 'group',
         '--n_workers': 8,
         '--hidden_sizes': (32, 32),
         '--mode': 'seeds',
-        '--n_seeds': 5,
-        '-H': 100,
+        '--n_seeds': 20,
+        '-H': 150,
+        '--save_fn': 'log/compare_on_swimmer/H_[H]-traj_[n_trajs]',
     }
     toggles = []
     variants = {
         '--n_trajs': [64, 128, 256],
     }
-    def post_option(toggle, variant):
-        variant['--save_fn'] = 'log/{}/traj_{}'.format(exp_name, variant['--n_trajs'])
-        return toggle, variant
-    generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants, post_option=post_option, shuffle=False)
+    generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants, shuffle=False)
 
 @cmd() # --env brownian --horizon 10 --n_trajs 32
 def compare_cost_on_brownian():
@@ -135,7 +133,7 @@ def compare_cost_on_brownian():
     args = []
     kwargs = {
         '--env': 'brownian',
-        '--exp_name': 'H_[horizon]-T[n_trajs]'
+        '--exp_name': '{}/H_[horizon]-T[n_trajs]'.format(exp_name),
     }
     toggles = []
     variants = {
@@ -143,6 +141,23 @@ def compare_cost_on_brownian():
         '--n_trajs': [32, 128, 256, 512, 1024],
     }
     generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)
+
+@cmd()
+def compare_cost_on_lqr():
+    exp_name = 'compare_cost_on_lqr'
+    args = []
+    kwargs = {
+        '--env': 'lqr',
+        '--exp_name': '{}/H_[horizon]-T[n_trajs]'.format(exp_name),
+        '--n_runs': 10,
+    }
+    toggles = []
+    variants = {
+        '--horizon': [10, 20, 40],
+        '--n_trajs': [32, 128, 256, 512, 1024],
+    }
+    generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)
+   
 
 if __name__ == "__main__":
     with launch_ipdb_on_exception():
