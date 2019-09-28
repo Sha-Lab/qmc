@@ -7,6 +7,7 @@ import numpy as np
 from pathlib import Path
 from ipdb import launch_ipdb_on_exception
 
+import exps
 from envs import Brownian, LQR
 #from rqmc_distributions.dist_rqmc import Uniform_RQMC, Normal_RQMC
 from rqmc_distributions import Normal_RQMC, Uniform_RQMC
@@ -30,7 +31,7 @@ def parse_args(args=None):
     parser.add_argument('--algos', type=str, nargs='+', default=['mc', 'rqmc', 'arqmc'])
     parser.add_argument('--exp_name', type=str, default=None)
     parser.add_argument('--seed', type=int, default=None)
-    return parser.parse_args(args)
+    return exps.parse_args(parser, args, exp_name_attr='exp_name')
 
 ### tasks ### (estimate cost, learn)
 
@@ -39,6 +40,11 @@ def parse_args(args=None):
 ### sampler ###
         
 def brownian(args):
+    if args.exp_name is not None:
+        Path('log', args.exp_name).mkdir(parents=True, exist_ok=True)
+        logger.get_logger('out', [sys.stdout, open(Path('log', args.exp_name, 'log.txt'), 'w')])
+    else:
+        logger.get_logger('out', [sys.stdout])
     ground_truth = 0.2 / np.sqrt(2 * np.pi) * np.sum(np.sqrt(np.arange(1, args.horizon + 1)) * (np.cumprod(args.gamma * np.ones(args.horizon))/ args.gamma))
     env = Brownian(gamma=args.gamma)
     # mc
@@ -68,7 +74,6 @@ def brownian(args):
             actions = Normal_RQMC(loc, scale, scrambled=True).sample(torch.Size([args.n_trajs])).data.numpy()
             #actions = (chaospy.distributions.sampler.sequences.korobov.create_korobov_samples(args.horizon, 1031, base=307)[:args.n_trajs] + np.random.rand(1, args.horizon)) % 1.0
             
-            print(actions)
             for i in range(args.n_trajs):
                 rs = 0.0
                 env.reset()
@@ -91,7 +96,7 @@ def brownian(args):
             #noises = sorted(list(Uniform_RQMC(loc, scale, scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()), key=lambda x: x[0])
             #noises = np.array(noises)[:, 1:]
 
-            noises = Uniform_RQMC(torch.zeros(1), torch.ones(1), scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()
+            #noises = Uniform_RQMC(torch.zeros(1), torch.ones(1), scrambled=False).sample(torch.Size([args.n_trajs])).data.numpy()
 
             #noises = chaospy.distributions.sampler.sequences.korobov.create_korobov_samples(1, args.n_trajs)
             envs = [Brownian(args.gamma) for _ in range(args.n_trajs)]
@@ -101,10 +106,10 @@ def brownian(args):
                 if np.all(dones): break
                 envs, states, dones, returns = zip(*sorted(zip(envs, states, dones, returns), key=lambda x: np.inf if x[2] else x[1]))
                 states, dones, returns = list(states), list(dones), list(returns)
-                bias = np.random.rand()
+                noises = Normal_RQMC(torch.zeros(1), torch.ones(1)).sample(torch.Size([args.n_trajs])).data.numpy()
                 for i, env in enumerate(envs):
                     if dones[i]: break
-                    state, r, done, _ = env.step(norm.ppf((noises[i] + bias) % 1.0))
+                    state, r, done, _ = env.step(noises[i])
                     states[i] = state
                     dones[i] = done
                     returns[i] += r
