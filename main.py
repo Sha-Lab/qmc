@@ -1,20 +1,22 @@
 import sys
 import gym
 import torch
-import torch.nn.functional as F
 import copy
 import dill
 import argparse
+import importlib
 import seaborn as sns
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
 from torch import nn
 from tqdm import tqdm, trange
 from ipdb import slaunch_ipdb_on_exception
 from pathlib import Path
 
 import exps
+import postprocess
 from envs import *
 from models import GaussianPolicy, get_mlp
 from utils import MPSampler, SeqSampler, ArrayRQMCSampler, VecSampler, rollout
@@ -35,6 +37,7 @@ def parse_args(args=None):
         '--task',
         choices=['cost', 'grad', 'learn'],
         default='learn')
+    parser.add_argument('--algos', default=['mc', 'rqmc', 'arqmc'], nargs='+', choices=['mc', 'rqmc', 'arqmc']) # learning use it
     parser.add_argument('--env', choices=['lqr', 'cartpole', 'swimmer', 'ant'], default='lqr')
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
     parser.add_argument('--init_scale', type=float, default=3.0)
@@ -56,6 +59,7 @@ def parse_args(args=None):
     parser.add_argument('--max_seed', type=int, default=100)
     parser.add_argument('--n_workers', type=int, default=1)
     parser.add_argument('--save_fn', type=str, default=None)
+    parser.add_argument('--post_f', type=str, default=None) # post processing function
     parser.add_argument('--cpu', action='store_true')
     args = exps.parse_args(parser, args, exp_name_attr='save_fn')
     return args
@@ -362,21 +366,14 @@ def learning(args):
             optim.zero_grad()
             loss = -torch.mean(torch.stack(loss))
             loss.backward()
-
-            #with debug('gradient error'):
-                #expected_grad = env.expected_policy_gradient(policy.mean.weight.detach().numpy(), np.diag(F.softplus(policy.std).detach().numpy()))
-                #grad = np.array(policy.mean.weight.grad.cpu().numpy())
-                #logger.info(np.linalg.norm(grad - expected_grad))
-
             optim.step()
             all_returns.append(np.mean(returns))
             prog.set_postfix(ret=all_returns[-1])
         return np.asarray(all_returns)
-    results = dict(
-        arqmc=train('arqmc', variance_reduced_loss, init_policy, noise_type='arqmc'),
-        mc=train('mc', variance_reduced_loss, init_policy, noise_type='mc'),
-        rqmc=train('rqmc', variance_reduced_loss, init_policy, noise_type='rqmc'),
-    )
+    results = {}
+    if 'mc' in args.algos: results['mc'] = train('mc', variance_reduced_loss, init_policy, noise_type='mc')
+    if 'rqmc' in args.algos: results['rqmc'] = train('rqmc', variance_reduced_loss, init_policy, noise_type='rqmc')
+    if 'arqmc' in args.algos: results['arqmc'] = train('arqmc', variance_reduced_loss, init_policy, noise_type='arqmc')
     if args.env in LQR_ENVS:
         results['optimal'] = train('optimal', no_loss, get_policy(argparse.Namespace(init_policy='optimal'), env), n_iters=1).repeat(args.n_iters)
     if args.show_fig or args.save_fig is not None:
@@ -405,16 +402,18 @@ def main(args=None):
         exp_f = compare_grad
     else:
         raise Exception('unsupported task')
+    if args.post_f is not None:
+        post_f = lambda results: getattr(postprocess, args.post_f)(args, results)
+    else: post_f = None
     if args.mode == 'single':
         exp_f(args)
     elif args.mode == 'seeds':
-        running_seeds(args.save_fn, exp_f, argparse.Namespace(**vars(args)), args.n_seeds)
+        running_seeds(args.save_fn, exp_f, argparse.Namespace(**vars(args)), args.n_seeds, post_f=post_f)
     elif args.mode == 'collect':
         assert args.task in ['learn']
         success_f = lambda result: len(result[1]['out']) == 0
-        collect_seeds(args.save_fn, exp_f, args, success_f=success_f, n_seeds=args.n_seeds, max_seed=args.max_seed)
+        collect_seeds(args.save_fn, exp_f, args, success_f=success_f, n_seeds=args.n_seeds, max_seed=args.max_seed, post_f=post_f)
 
 
 if __name__ == '__main__':
-    from exps import run_one_exp
-    run_one_exp(main)
+    exps.run_one_exp(main)

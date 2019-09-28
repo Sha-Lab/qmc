@@ -427,7 +427,7 @@ def get_gradient(states, actions, rewards, policy, loss_fn):
     loss_fn(states, actions, rewards, policy).backward() 
     return np.array(policy.mean.weight.grad.cpu().numpy())
 
-def running_seeds(save_fn, sample_f, sample_args, num_seeds=200):
+def running_seeds(save_fn, sample_f, sample_args, num_seeds=200, post_f=None):
     results = []
     sample_args.save_fn = None # overwrite
     for seed in range(num_seeds):
@@ -438,9 +438,11 @@ def running_seeds(save_fn, sample_f, sample_args, num_seeds=200):
     Path(save_fn).parent.mkdir(parents=True, exist_ok=True)
     with open(save_fn, 'wb') as f:
         dill.dump(results, f)
+    if post_f is not None:
+        post_f(results)
 
 # run until a number of success seed is collected
-def collect_seeds(save_fn, sample_f, sample_args, success_f, n_seeds=50, max_seed=200):
+def collect_seeds(save_fn, sample_f, sample_args, success_f, n_seeds=50, max_seed=200, post_f=None):
     results = []
     sample_args.save_fn = None # overwrite, do not save
     n_success = 0
@@ -459,6 +461,8 @@ def collect_seeds(save_fn, sample_f, sample_args, success_f, n_seeds=50, max_see
     save_fn.parent.mkdir(parents=True, exist_ok=True) 
     with open(save_fn, 'wb') as f:
         dill.dump(results, f)
+    if post_f is not None:
+        post_f(results)
 
 # only support LQR
 def sort_by_optimal_value(env):

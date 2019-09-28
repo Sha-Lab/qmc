@@ -114,19 +114,20 @@ def compare_on_swimmer():
     kwargs = {
         '--env': 'swimmer',
         '--n_iters': 3000,
-        '--sorter': 'group',
+        '--sorter': 'norm',
         '--n_workers': 8,
         '--hidden_sizes': (32, 32),
         '--mode': 'seeds',
         '--n_seeds': 20,
         '-H': 150,
-        '--save_fn': 'log/compare_on_swimmer/H_[H]-traj_[n_trajs]',
+        '--save_fn': 'log/compare_on_swimmer/H_[H]-traj_[n_trajs]_s[sorter]',
     }
     toggles = []
     variants = {
-        '--n_trajs': [64, 128, 256],
+        '--n_trajs': [64],
     }
-    generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants, shuffle=False)
+    exp_path = None # 'exps/{}'.format(exp_name)
+    generate_args(exp_path, args, kwargs, toggles, variants, shuffle=False)
 
 @cmd() # --env brownian --horizon 10 --n_trajs 32
 def compare_cost_on_brownian():
