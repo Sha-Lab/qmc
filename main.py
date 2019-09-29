@@ -38,7 +38,7 @@ def parse_args(args=None):
         choices=['cost', 'grad', 'learn'],
         default='learn')
     parser.add_argument('--algos', default=['mc', 'rqmc', 'arqmc'], nargs='+', choices=['mc', 'rqmc', 'arqmc']) # learning use it
-    parser.add_argument('--env', choices=['lqr', 'cartpole', 'swimmer', 'ant'], default='lqr')
+    parser.add_argument('--env', choices=['lqr', 'cartpole', 'swimmer', 'ant', 'pointmass'], default='lqr')
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
     parser.add_argument('--init_scale', type=float, default=3.0)
     parser.add_argument('--PQ_kappa', type=float, default=3.0)
@@ -91,6 +91,8 @@ def get_env(args):
         env = HorizonWrapper(gym.make('Ant-v2'), args.H)
     elif args.env == 'swimmer':
         env = HorizonWrapper(gym.make('Swimmer-v2'), args.H)
+    elif args.env == 'pointmass':
+        env = HorizonWrapper(PointMass('8x8', goal=(2, 2), init_pos=(8, 8)), args.H)
     else:
         raise Exception('unsupported lqr env')
     return env
@@ -323,10 +325,10 @@ def learning(args):
     set_seed(args.seed)
     env = get_env(args)
     if Config.DEVICE.type == 'cpu': 
-        sampler = MPSampler(env, args.n_workers) # mp
+        #sampler = MPSampler(env, args.n_workers) # mp
+        sampler = SeqSampler(env) # sequential
     else:
         sampler = VecSampler(env, args.n_trajs) # a simplied version where the number of workers == the number of trajs
-        #sampler = SeqSampler(env) # sequential
     sort_f = get_sorter(args.sorter[0], env)
     arqmc_sampler = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f)
     init_policy = get_policy(args, env)
