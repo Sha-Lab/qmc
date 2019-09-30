@@ -164,7 +164,24 @@ def compare_cost_on_lqr():
     }
     generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)
 
-
+@cmd()
+def search_learn_on_pointmass():
+    exp_name = get_function_name()
+    args = []
+    kwargs = {
+        '--env': 'pointmass',
+        '--exp_name': '{}/H_[horizon]-T[n_trajs]-HI[hidden_sizes]'.format(exp_name),
+        '--n_runs': 30,
+        '--seed': 0,
+        '--sorter': 'group',
+    }
+    toggles = []
+    variants = {
+        '--horizon': [30, 50, 70],
+        '--n_trajs': [64, 128, 256, 512],
+        '--hidden_sizes': [(8,), (16,), (32,)],
+    }
+    generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants) 
 
 if __name__ == "__main__":
     with launch_ipdb_on_exception():
