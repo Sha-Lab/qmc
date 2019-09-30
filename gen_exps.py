@@ -167,17 +167,18 @@ def compare_cost_on_lqr():
 @cmd()
 def search_learn_on_pointmass():
     exp_name = get_function_name()
-    args = []
+    args = ['--gate_output']
     kwargs = {
         '--env': 'pointmass',
-        '--exp_name': '{}/H_[horizon]-T[n_trajs]-HI[hidden_sizes]'.format(exp_name),
-        '--n_runs': 30,
-        '--seed': 0,
+        '--n_iters': 1000,
+        '--save_fn': 'log/{}/H_[H]-T[n_trajs]-HI[hidden_sizes]'.format(exp_name),
+        '--mode': 'seeds',
+        '--n_seeds': 20,
         '--sorter': 'group',
     }
     toggles = []
     variants = {
-        '--horizon': [30, 50, 70],
+        '-H': [30, 50, 70],
         '--n_trajs': [64, 128, 256, 512],
         '--hidden_sizes': [(8,), (16,), (32,)],
     }
