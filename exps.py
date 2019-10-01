@@ -164,7 +164,7 @@ def parse_tag(tag_str, args):
         if group.startswith('['):
             elem = getattr(args, group[1:-1])
             if isinstance(elem, list): # expand list
-                elem = '_'.join(elem)
+                elem = '_'.join([str(e) for e in elem])
             tag.append(str(elem))
         else:
             tag.append(group)

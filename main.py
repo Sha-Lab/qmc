@@ -38,7 +38,8 @@ def parse_args(args=None):
         choices=['cost', 'grad', 'learn'],
         default='learn')
     parser.add_argument('--algos', default=['mc', 'rqmc', 'arqmc'], nargs='+', choices=['mc', 'rqmc', 'arqmc']) # learning use it
-    parser.add_argument('--env', choices=['lqr', 'cartpole', 'swimmer', 'ant'], default='lqr')
+    parser.add_argument('--env', choices=['lqr', 'cartpole', 'swimmer', 'ant', 'pointmass'], default='lqr')
+    parser.add_argument('--map_name', type=str, default='8x8') # for pointmass only
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
     parser.add_argument('--init_scale', type=float, default=3.0)
     parser.add_argument('--PQ_kappa', type=float, default=3.0)
@@ -50,6 +51,8 @@ def parse_args(args=None):
     parser.add_argument('--n_iters', type=int, default=200, help='number of iterations of training')
     parser.add_argument('-lr', type=float, default=5e-5)
     parser.add_argument('--init_policy', choices=['optimal', 'linear', 'linear_bias', 'mlp'], default='linear')
+    parser.add_argument('--fix_std', action='store_true')
+    parser.add_argument('--gate_output', action='store_true')
     parser.add_argument('--hidden_sizes', nargs='+', type=int, default=[16])
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--show_fig', action='store_true')
@@ -89,6 +92,8 @@ def get_env(args):
         env = HorizonWrapper(gym.make('Ant-v2'), args.H)
     elif args.env == 'swimmer':
         env = HorizonWrapper(gym.make('Swimmer-v2'), args.H)
+    elif args.env == 'pointmass':
+        env = HorizonWrapper(PointMass(args.map_name, goal=(2, 2), init_pos=(8, 8)), args.H)
     else:
         raise Exception('unsupported lqr env')
     return env
@@ -112,7 +117,7 @@ def get_policy(args, env):
         mean_network = get_mlp((N,) + tuple(args.hidden_sizes) + (M,), gate=nn.Tanh)
     else:
         raise Exception('unsupported policy type')
-    return GaussianPolicy(N, M, mean_network)
+    return GaussianPolicy(N, M, mean_network, learn_std=not args.fix_std, gate_output=args.gate_output)
 
 def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
     if noise_type == 'trajwise':
@@ -321,10 +326,10 @@ def learning(args):
     set_seed(args.seed)
     env = get_env(args)
     if Config.DEVICE.type == 'cpu': 
-        sampler = MPSampler(env, args.n_workers) # mp
+        #sampler = MPSampler(env, args.n_workers) # mp
+        sampler = SeqSampler(env) # sequential
     else:
         sampler = VecSampler(env, args.n_trajs) # a simplied version where the number of workers == the number of trajs
-        #sampler = SeqSampler(env) # sequential
     sort_f = get_sorter(args.sorter[0], env)
     arqmc_sampler = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f)
     init_policy = get_policy(args, env)
@@ -393,6 +398,7 @@ def main(args=None):
 
     select_device(0 if torch.cuda.is_available() and not args.cpu else -1)
     #select_device(-1)
+    logger.prog('device: {}'.format(Config.DEVICE))
 
     if args.task == 'learn':
         exp_f = learning

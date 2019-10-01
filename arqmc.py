@@ -40,11 +40,6 @@ def parse_args(args=None):
 ### sampler ###
         
 def brownian(args):
-    if args.exp_name is not None:
-        Path('log', args.exp_name).mkdir(parents=True, exist_ok=True)
-        logger.get_logger('out', [sys.stdout, open(Path('log', args.exp_name, 'log.txt'), 'w')])
-    else:
-        logger.get_logger('out', [sys.stdout])
     ground_truth = 0.2 / np.sqrt(2 * np.pi) * np.sum(np.sqrt(np.arange(1, args.horizon + 1)) * (np.cumprod(args.gamma * np.ones(args.horizon))/ args.gamma))
     env = Brownian(gamma=args.gamma)
     # mc
@@ -122,11 +117,6 @@ def get_sorter(sorter, env):
         raise Exception('unknown sorter')
 
 def lqr(args):
-    if args.exp_name is not None:
-        Path('log', args.exp_name).mkdir(parents=True, exist_ok=True)
-        logger.get_logger('out', [sys.stdout, open(Path('log', args.exp_name, 'log.txt'), 'w')])
-    else:
-        logger.get_logger('out', [sys.stdout])
     def get_action(state, K, noise):
         return np.matmul(K, state) + noise
     def get_env():
@@ -217,6 +207,11 @@ def main(args=None):
         args.seed = np.random.randint(0, 10000000)
         logger.prog('randomly selected seed: {}'.format(args.seed))
     set_seed(args.seed)
+    if args.exp_name is not None:
+        Path('log', args.exp_name).mkdir(parents=True, exist_ok=True)
+        logger.get_logger('out', [sys.stdout, open(Path('log', args.exp_name, 'log.txt'), 'w')])
+    else:
+        logger.get_logger('out', [sys.stdout])
     if args.env == 'brownian':
         brownian(args)
     elif args.env == 'lqr':

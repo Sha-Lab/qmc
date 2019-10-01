@@ -108,19 +108,19 @@ def compare_on_cartpole():
     generate_args('exps/compare_on_cartpole', args, kwargs, toggles, variants, post_option=post_option, shuffle=False)
 
 @cmd()
-def compare_on_swimmer():
+def compare_on_swimmer_fix_std():
     exp_name = get_function_name()
-    args = []
+    args = ['--fix_std']
     kwargs = {
         '--env': 'swimmer',
-        '--n_iters': 3000,
+        '--n_iters': 2000,
         '--sorter': 'norm',
         '--n_workers': 8,
-        '--hidden_sizes': (32, 32),
+        '--hidden_sizes': (16, 16),
         '--mode': 'seeds',
         '--n_seeds': 20,
-        '-H': 150,
-        '--save_fn': 'log/compare_on_swimmer/H_[H]-traj_[n_trajs]_s[sorter]',
+        '-H': 100,
+        '--save_fn': 'log/{}/H_[H]-traj_[n_trajs]_s[sorter]'.format(exp_name),
     }
     toggles = []
     variants = {
@@ -164,7 +164,25 @@ def compare_cost_on_lqr():
     }
     generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)
 
-
+@cmd()
+def search_learn_on_pointmass():
+    exp_name = None#get_function_name()
+    args = ['--gate_output']
+    kwargs = {
+        '--env': 'pointmass',
+        '--n_iters': 1000,
+        '--save_fn': 'log/{}/H_[H]-T[n_trajs]-HI[hidden_sizes]'.format(exp_name),
+        '--mode': 'seeds',
+        '--n_seeds': 20,
+        '--sorter': 'group',
+    }
+    toggles = []
+    variants = {
+        '-H': [30],#[30, 50, 70],
+        '--n_trajs': [64],#[64, 128, 256, 512],
+        '--hidden_sizes': [(16,)],#[(8,), (16,), (32,)],
+    }
+    generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants) 
 
 if __name__ == "__main__":
     with launch_ipdb_on_exception():
