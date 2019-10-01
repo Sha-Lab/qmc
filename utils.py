@@ -422,11 +422,11 @@ def variance_reduced_loss(states, actions, rewards, policy):
 def no_loss(states, actions, rewards, policy):
     return tensor(0.0, requires_grad=True)
 
-# this is a tricky function, since it will affect the gradient of the policy
-def get_gradient(states, actions, rewards, policy, loss_fn):
+# this is a tricky function, since it will affect the gradient of the policy, and only works for Gaussian policy
+def get_gaussian_policy_gradient(states, actions, rewards, policy, loss_fn):
     policy.zero_grad()
     loss_fn(states, actions, rewards, policy).backward() 
-    return np.array(policy.mean.weight.grad.cpu().numpy())
+    return np.array(policy._mean.weight.grad.cpu().numpy())
 
 def running_seeds(save_fn, sample_f, sample_args, num_seeds=200, post_f=None):
     results = []
@@ -465,15 +465,19 @@ def collect_seeds(save_fn, sample_f, sample_args, success_f, n_seeds=50, max_see
     if post_f is not None:
         post_f(results)
 
-# only support LQR
-def sort_by_optimal_value(env):
-    K = env.optimal_controller()
+# only works for LQR
+def sort_by_policy_value(env, K):
     Sigma_a = np.diag(np.ones(env.M))
     cost_f = env.expected_cost_state_func(K, Sigma_a)
     def f(args):
         env, state, done, data = args
         return np.inf if done else cost_f(state)
     return f
+
+# only support LQR
+def sort_by_optimal_value(env):
+    K = env.optimal_controller()
+    return sort_by_policy_value(env, K)
 
 def sort_by_norm(env):
     def f(args):

@@ -20,7 +20,8 @@ import postprocess
 from envs import *
 from models import GaussianPolicy, get_mlp
 from utils import MPSampler, SeqSampler, ArrayRQMCSampler, VecSampler, rollout
-from utils import set_seed, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gradient, sort_by_optimal_value, sort_by_norm, multdim_sort, no_sort, random_permute, logger, debug, Config, HorizonWrapper
+from utils import sort_by_optimal_value, sort_by_norm, multdim_sort, no_sort, sort_by_policy_value
+from utils import set_seed, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gaussian_policy_gradient, random_permute, logger, debug, Config, HorizonWrapper
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
@@ -133,9 +134,11 @@ def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
         raise Exception('unknown rqmc type')
     return noises
 
-def get_sorter(sorter, env):
+def get_sorter(sorter, env, K=None):
     if sorter == 'value':
-        return lambda pairs: sorted(pairs, key=sort_by_optimal_value(env))
+        if K is None:
+            return lambda pairs: sorted(pairs, key=sort_by_optimal_value(env))
+        return lambda pairs: sorted(pairs, key=sort_by_policy_value(env, K))
     elif sorter == 'norm':
         return lambda pairs: sorted(pairs, key=sort_by_norm(env))
     elif sorter == 'permute':
@@ -265,7 +268,7 @@ def compare_grad(args):
     for i in tqdm(range(args.n_trajs), 'mc'):
         noises = np.random.randn(env.max_steps, env.M)
         states, actions, rewards, _, _ = rollout(env, policy, noises)
-        mc_grads.append(get_gradient(states, actions, rewards, policy, variance_reduced_loss))
+        mc_grads.append(get_gaussian_policy_gradient(states, actions, rewards, policy, variance_reduced_loss))
     mc_grads = np.asarray(mc_grads)
     mc_means = np.cumsum(mc_grads, axis=0) / np.arange(1, len(mc_grads) + 1)[:, np.newaxis, np.newaxis]
 
@@ -275,17 +278,17 @@ def compare_grad(args):
     rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy()
     for i in tqdm(range(args.n_trajs), 'rqmc'):
         states, actions, rewards, _, _ = rollout(env, policy, rqmc_noises[i].reshape(env.max_steps, env.M))
-        rqmc_grads.append(get_gradient(states, actions, rewards, policy, variance_reduced_loss))
+        rqmc_grads.append(get_gaussian_policy_gradient(states, actions, rewards, policy, variance_reduced_loss))
     rqmc_grads = np.asarray(rqmc_grads)
     rqmc_means = np.cumsum(rqmc_grads, axis=0) / np.arange(1, len(rqmc_grads) + 1)[:, np.newaxis, np.newaxis]
 
     arqmc_grads = []
     arqmc_noises = get_rqmc_noises(args.n_trajs, args.H, env.M, 'array')
-    sort_f = get_sorter(args.sorter, env)
+    sort_f = get_sorter(args.sorter[0], env, K)
     data = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f).sample(policy, arqmc_noises)
     for traj in data:
         states, actions, rewards = np.asarray(traj['states']), np.asarray(traj['actions']), np.asarray(traj['rewards'])
-        arqmc_grads.append(get_gradient(states, actions, rewards, policy, variance_reduced_loss))
+        arqmc_grads.append(get_gaussian_policy_gradient(states, actions, rewards, policy, variance_reduced_loss))
     arqmc_grads = np.asarray(arqmc_grads)
     arqmc_means = np.cumsum(arqmc_grads, axis=0) / np.arange(1, len(arqmc_grads) + 1)[:, np.newaxis, np.newaxis]
 
