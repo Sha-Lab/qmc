@@ -39,6 +39,7 @@ def parse_args(args=None):
         default='learn')
     parser.add_argument('--algos', default=['mc', 'rqmc', 'arqmc'], nargs='+', choices=['mc', 'rqmc', 'arqmc']) # learning use it
     parser.add_argument('--env', choices=['lqr', 'cartpole', 'swimmer', 'ant', 'pointmass'], default='lqr')
+    parser.add_argument('--map_name', type=str, default='8x8') # for pointmass only
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
     parser.add_argument('--init_scale', type=float, default=3.0)
     parser.add_argument('--PQ_kappa', type=float, default=3.0)
@@ -92,7 +93,7 @@ def get_env(args):
     elif args.env == 'swimmer':
         env = HorizonWrapper(gym.make('Swimmer-v2'), args.H)
     elif args.env == 'pointmass':
-        env = HorizonWrapper(PointMass('8x8', goal=(2, 2), init_pos=(8, 8)), args.H)
+        env = HorizonWrapper(PointMass(args.map_name, goal=(2, 2), init_pos=(8, 8)), args.H)
     else:
         raise Exception('unsupported lqr env')
     return env

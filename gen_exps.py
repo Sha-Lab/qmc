@@ -166,7 +166,7 @@ def compare_cost_on_lqr():
 
 @cmd()
 def search_learn_on_pointmass():
-    exp_name = get_function_name()
+    exp_name = None#get_function_name()
     args = ['--gate_output']
     kwargs = {
         '--env': 'pointmass',
@@ -178,9 +178,9 @@ def search_learn_on_pointmass():
     }
     toggles = []
     variants = {
-        '-H': [30, 50, 70],
-        '--n_trajs': [64, 128, 256, 512],
-        '--hidden_sizes': [(8,), (16,), (32,)],
+        '-H': [30],#[30, 50, 70],
+        '--n_trajs': [64],#[64, 128, 256, 512],
+        '--hidden_sizes': [(16,)],#[(8,), (16,), (32,)],
     }
     generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants) 
 
