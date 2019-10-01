@@ -72,6 +72,7 @@ class PointMass(gym.Env):
 
     def step(self, action):
         assert not self._is_blocked(self.pos), 'start position in the wall'
+        action = np.clip(action, self.action_space.low, self.action_space.high)
         dpos = 1.0 / self.n_sub_steps
         for _ in range(self.n_sub_steps):
             next_pos = self.pos + action * dpos

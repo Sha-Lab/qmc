@@ -253,8 +253,8 @@ def compare_grad(args):
         B_norm=1.0,
         Sigma_s_scale=args.noise,
     )
-    K = env.optimal_controller()
-    #K = np.random.randn(env.M, env.N) # debug, this one seems to work worse, by 1 magnitude
+    #K = env.optimal_controller()
+    K = np.random.randn(env.M, env.N)
     mean_network = nn.Linear(*K.shape[::-1], bias=False)
     mean_network.weight.data = tensor(K)
     policy = GaussianPolicy(*K.shape[::-1], mean_network, learn_std=False, gate_output=False)
@@ -265,7 +265,6 @@ def compare_grad(args):
     for i in tqdm(range(args.n_trajs), 'mc'):
         noises = np.random.randn(env.max_steps, env.M)
         states, actions, rewards, _, _ = rollout(env, policy, noises)
-        #mc_grads.append(get_gradient(states, actions, rewards, policy, reinforce_loss))
         mc_grads.append(get_gradient(states, actions, rewards, policy, variance_reduced_loss))
     mc_grads = np.asarray(mc_grads)
     mc_means = np.cumsum(mc_grads, axis=0) / np.arange(1, len(mc_grads) + 1)[:, np.newaxis, np.newaxis]
@@ -276,18 +275,16 @@ def compare_grad(args):
     rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy()
     for i in tqdm(range(args.n_trajs), 'rqmc'):
         states, actions, rewards, _, _ = rollout(env, policy, rqmc_noises[i].reshape(env.max_steps, env.M))
-        #rqmc_grads.append(get_gradient(states, actions, rewards, policy, reinforce_loss))
         rqmc_grads.append(get_gradient(states, actions, rewards, policy, variance_reduced_loss))
     rqmc_grads = np.asarray(rqmc_grads)
     rqmc_means = np.cumsum(rqmc_grads, axis=0) / np.arange(1, len(rqmc_grads) + 1)[:, np.newaxis, np.newaxis]
 
     arqmc_grads = []
     arqmc_noises = get_rqmc_noises(args.n_trajs, args.H, env.M, 'array')
-    sort_f = get_sorter(args, env)
+    sort_f = get_sorter(args.sorter, env)
     data = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f).sample(policy, arqmc_noises)
     for traj in data:
         states, actions, rewards = np.asarray(traj['states']), np.asarray(traj['actions']), np.asarray(traj['rewards'])
-        #arqmc_grads.append(get_gradient(states, actions, rewards, policy, reinforce_loss))
         arqmc_grads.append(get_gradient(states, actions, rewards, policy, variance_reduced_loss))
     arqmc_grads = np.asarray(arqmc_grads)
     arqmc_means = np.cumsum(arqmc_grads, axis=0) / np.arange(1, len(arqmc_grads) + 1)[:, np.newaxis, np.newaxis]
