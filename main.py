@@ -47,7 +47,7 @@ def parse_args(args=None):
     parser.add_argument('--AB_norm', type=float, default=1.0)
     parser.add_argument('-H', type=int, default=10, help='horizon')
     parser.add_argument('--noise', type=float, default=0.0, help='noise scale')
-    parser.add_argument('--sorter', nargs='+', choices=['value', 'norm', 'none', 'permute', 'group'], default=['value'])
+    parser.add_argument('--sorter', nargs='+', choices=['value', 'policy', 'norm', 'none', 'permute', 'group'], default=['value'])
     parser.add_argument('--n_trajs', type=int, default=800, help='number of trajectories used')
     parser.add_argument('--n_iters', type=int, default=200, help='number of iterations of training')
     parser.add_argument('-lr', type=float, default=5e-5)
@@ -136,8 +136,8 @@ def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
 
 def get_sorter(sorter, env, K=None):
     if sorter == 'value':
-        if K is None:
-            return lambda pairs: sorted(pairs, key=sort_by_optimal_value(env))
+        return lambda pairs: sorted(pairs, key=sort_by_optimal_value(env))
+    elif sorter == 'policy':
         return lambda pairs: sorted(pairs, key=sort_by_policy_value(env, K))
     elif sorter == 'norm':
         return lambda pairs: sorted(pairs, key=sort_by_norm(env))

@@ -184,6 +184,25 @@ def search_learn_on_pointmass():
     }
     generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants) 
 
+@cmd()
+def compare_grad_on_lqr():
+    exp_name = get_function_name()
+    args = []
+    kwargs = {
+        '--task': 'grad',
+        '--env': 'lqr',
+        '--save_fn': 'log/{}/H_[H]-T[n_trajs]'.format(exp_name),
+        '--mode': 'seeds',
+        '--n_seeds': 30,
+        '--sorter': 'value policy norm group permute',
+    }
+    toggles = []
+    variants = {
+        '-H': [10, 20, 40],
+        '--n_trajs': [64, 256, 1024],
+    }
+    generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)
+
 if __name__ == "__main__":
     with launch_ipdb_on_exception():
         cmd_run()
