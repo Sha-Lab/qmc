@@ -282,25 +282,32 @@ def compare_grad(args):
     rqmc_grads = np.asarray(rqmc_grads)
     rqmc_means = np.cumsum(rqmc_grads, axis=0) / np.arange(1, len(rqmc_grads) + 1)[:, np.newaxis, np.newaxis]
 
-    arqmc_grads = []
+    arqmc_means_dict = {}
     arqmc_noises = get_rqmc_noises(args.n_trajs, args.H, env.M, 'array')
-    sort_f = get_sorter(args.sorter[0], env, K)
-    data = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f).sample(policy, arqmc_noises)
-    for traj in data:
-        states, actions, rewards = np.asarray(traj['states']), np.asarray(traj['actions']), np.asarray(traj['rewards'])
-        arqmc_grads.append(get_gaussian_policy_gradient(states, actions, rewards, policy, variance_reduced_loss))
-    arqmc_grads = np.asarray(arqmc_grads)
-    arqmc_means = np.cumsum(arqmc_grads, axis=0) / np.arange(1, len(arqmc_grads) + 1)[:, np.newaxis, np.newaxis]
+    for sorter in args.sorter:
+        arqmc_grads = []
+        sort_f = get_sorter(sorter, env, K)
+        data = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f).sample(policy, arqmc_noises)
+        for traj in data:
+            states, actions, rewards = np.asarray(traj['states']), np.asarray(traj['actions']), np.asarray(traj['rewards'])
+            arqmc_grads.append(get_gaussian_policy_gradient(states, actions, rewards, policy, variance_reduced_loss))
+        arqmc_grads = np.asarray(arqmc_grads)
+        arqmc_means = np.cumsum(arqmc_grads, axis=0) / np.arange(1, len(arqmc_grads) + 1)[:, np.newaxis, np.newaxis]
+        arqmc_means_dict[sorter] = arqmc_means
 
     expected_grad = env.expected_policy_gradient(K, Sigma_a)
 
     mc_errors = ((mc_means - expected_grad) ** 2).reshape(mc_means.shape[0], -1).mean(1) # why the sign is reversed?
     rqmc_errors = ((rqmc_means - expected_grad) ** 2).reshape(rqmc_means.shape[0], -1).mean(1)
     arqmc_errors = ((arqmc_means - expected_grad) ** 2).reshape(arqmc_means.shape[0], -1).mean(1)
+    arqmc_errors_dict = {
+        sorter: ((arqmc_means - expected_grad) ** 2).reshape(arqmc_means.shape[0], -1).mean(1)
+        for sorter, arqmc_means in arqmc_means_dict.items()
+    }
     info = {**vars(args)}
     if args.save_fn is not None:
         with open(save_fn, 'wb') as f:
-            dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, arqmc_errors=arqmc_errors, info=info), f)
+            dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, arqmc_errors_dict=arqmc_errors_dict, info=info), f)
     if args.show_fig:
         mc_data = pd.DataFrame({
             'name': 'mc',
@@ -312,15 +319,18 @@ def compare_grad(args):
             'x': np.arange(len(rqmc_errors)),
             'error': rqmc_errors,
         })
-        arqmc_data = pd.DataFrame({
-            'name': 'arqmc',
-            'x': np.arange(len(arqmc_errors)),
-            'error': arqmc_errors,
-        })
+        arqmc_data = pd.concat([
+            pd.DataFrame({
+                'name': 'arqmc_{}'.format(sorter),
+                'x': np.arange(len(arqmc_errors)),
+                'error': arqmc_errors,
+            })
+            for sorter, arqmc_errors in arqmc_errors_dict.items()
+        ])
         plot = sns.lineplot(x='x', y='error', hue='name', data=pd.concat([mc_data, rqmc_data, arqmc_data]))
         plot.set(yscale='log')
         plt.show()
-    return mc_errors, rqmc_errors, arqmc_errors, info
+    return mc_errors, rqmc_errors, arqmc_errors_dict, info
 
 def learning(args):
     set_seed(args.seed)
