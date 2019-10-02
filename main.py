@@ -14,7 +14,6 @@ from torch import nn
 from tqdm import tqdm, trange
 from ipdb import slaunch_ipdb_on_exception
 from pathlib import Path
-from sklearn.metrics.pairwise import cosine_similarity
 
 import exps
 import postprocess
@@ -22,7 +21,7 @@ from envs import *
 from models import GaussianPolicy, get_mlp
 from utils import MPSampler, SeqSampler, ArrayRQMCSampler, VecSampler, rollout
 from utils import sort_by_optimal_value, sort_by_norm, multdim_sort, no_sort, sort_by_policy_value
-from utils import set_seed, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gaussian_policy_gradient, random_permute, logger, debug, Config, HorizonWrapper
+from utils import set_seed, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gaussian_policy_gradient, random_permute, logger, debug, Config, HorizonWrapper, cosine_similarity
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
@@ -307,9 +306,10 @@ def compare_grad(args):
         arqmc_means_dict[sorter] = arqmc_means
 
     expected_grad = env.expected_policy_gradient(K, Sigma_a)
-    print('mc angle: {}'.format(cosine_similarity(mc_means[-1].flatten(), expected_grad.flatten())))
-    print('rqmc angle: {}'.format(cosine_similarity(rqmc_means[-1].flatten(), expected_grad.flatten())))
-    print('arqmc angle: {}'.format(cosine_similarity(arqmc_means[-1].flatten(), expected_grad.flatten())))
+    #print('expected norm: {}'.format(np.linalg.norm(expected_grad)))
+    #print('mc angle: {}, norm: {}'.format(cosine_similarity(mc_means[-1].flatten(), expected_grad.flatten()), np.linalg.norm(mc_means[-1])))
+    #print('rqmc angle: {}, norm: {}'.format(cosine_similarity(rqmc_means[-1].flatten(), expected_grad.flatten()), np.linalg.norm(rqmc_means[-1])))
+    #print('arqmc angle: {}, norm: {}'.format(cosine_similarity(arqmc_means[-1].flatten(), expected_grad.flatten()), np.linalg.norm(arqmc_means[-1])))
 
     mc_errors = [np.nan] if 'mc' in out_set else ((mc_means - expected_grad) ** 2).reshape(mc_means.shape[0], -1).mean(1) # why the sign is reversed?
     rqmc_errors = [np.nan] if 'rqmc' in out_set else ((rqmc_means - expected_grad) ** 2).reshape(rqmc_means.shape[0], -1).mean(1)
@@ -317,7 +317,16 @@ def compare_grad(args):
         sorter: [np.nan] if 'arqmc_{}'.format(sorter) in out_set else ((arqmc_means - expected_grad) ** 2).reshape(arqmc_means.shape[0], -1).mean(1)
         for sorter, arqmc_means in arqmc_means_dict.items()
     }
-    info = {**vars(args), 'out': out_set}
+    info = {
+        **vars(args),
+        'out': out_set,
+        'expected_grad': expected_grad,
+        'means': {
+            'mc': mc_means,
+            'rqmc': rqmc_means,
+            **arqmc_means_dict,
+        },
+    }
     if args.save_fn is not None:
         with open(save_fn, 'wb') as f:
             dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, arqmc_errors_dict=arqmc_errors_dict, info=info), f)

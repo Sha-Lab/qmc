@@ -247,6 +247,9 @@ def set_seed(seed):
 def np_check_numerics(*args):
     return all([np.all(np.isfinite(x)) for x in args])
 
+def cosine_similarity(a, b):
+    return np.dot(a, b) / np.linalg.norm(a) / np.linalg.norm(b)
+
 # environment might has different random seed
 def rollout(env, policy, noises):
     states = []
