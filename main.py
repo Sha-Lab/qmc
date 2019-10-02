@@ -14,6 +14,7 @@ from torch import nn
 from tqdm import tqdm, trange
 from ipdb import slaunch_ipdb_on_exception
 from pathlib import Path
+from sklearn.metrics.pairwise import cosine_similarity
 
 import exps
 import postprocess
@@ -261,6 +262,7 @@ def compare_grad(args):
     mean_network = nn.Linear(*K.shape[::-1], bias=False)
     mean_network.weight.data = tensor(K)
     policy = GaussianPolicy(*K.shape[::-1], mean_network, learn_std=False, gate_output=False)
+    out_set = set() # here
 
     Sigma_a = np.diag(np.ones(env.M))
     Sigma_a_inv = np.linalg.inv(Sigma_a)
@@ -268,6 +270,9 @@ def compare_grad(args):
     for i in tqdm(range(args.n_trajs), 'mc'):
         noises = np.random.randn(env.max_steps, env.M)
         states, actions, rewards, _, _ = rollout(env, policy, noises)
+        if len(states) < args.H:
+            out_set.add('mc')
+            break
         mc_grads.append(get_gaussian_policy_gradient(states, actions, rewards, policy, variance_reduced_loss))
     mc_grads = np.asarray(mc_grads)
     mc_means = np.cumsum(mc_grads, axis=0) / np.arange(1, len(mc_grads) + 1)[:, np.newaxis, np.newaxis]
@@ -278,6 +283,9 @@ def compare_grad(args):
     rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy()
     for i in tqdm(range(args.n_trajs), 'rqmc'):
         states, actions, rewards, _, _ = rollout(env, policy, rqmc_noises[i].reshape(env.max_steps, env.M))
+        if len(states) < args.H:
+            out_set.add('rqmc')
+            break
         rqmc_grads.append(get_gaussian_policy_gradient(states, actions, rewards, policy, variance_reduced_loss))
     rqmc_grads = np.asarray(rqmc_grads)
     rqmc_means = np.cumsum(rqmc_grads, axis=0) / np.arange(1, len(rqmc_grads) + 1)[:, np.newaxis, np.newaxis]
@@ -290,21 +298,26 @@ def compare_grad(args):
         data = ArrayRQMCSampler(env, args.n_trajs, sort_f=sort_f).sample(policy, arqmc_noises)
         for traj in data:
             states, actions, rewards = np.asarray(traj['states']), np.asarray(traj['actions']), np.asarray(traj['rewards'])
+            if len(states) < args.H:
+                out_set.add('arqmc_{}'.format(sorter))
+                break
             arqmc_grads.append(get_gaussian_policy_gradient(states, actions, rewards, policy, variance_reduced_loss))
         arqmc_grads = np.asarray(arqmc_grads)
         arqmc_means = np.cumsum(arqmc_grads, axis=0) / np.arange(1, len(arqmc_grads) + 1)[:, np.newaxis, np.newaxis]
         arqmc_means_dict[sorter] = arqmc_means
 
     expected_grad = env.expected_policy_gradient(K, Sigma_a)
+    print('mc angle: {}'.format(cosine_similarity(mc_means[-1].flatten(), expected_grad.flatten())))
+    print('rqmc angle: {}'.format(cosine_similarity(rqmc_means[-1].flatten(), expected_grad.flatten())))
+    print('arqmc angle: {}'.format(cosine_similarity(arqmc_means[-1].flatten(), expected_grad.flatten())))
 
-    mc_errors = ((mc_means - expected_grad) ** 2).reshape(mc_means.shape[0], -1).mean(1) # why the sign is reversed?
-    rqmc_errors = ((rqmc_means - expected_grad) ** 2).reshape(rqmc_means.shape[0], -1).mean(1)
-    arqmc_errors = ((arqmc_means - expected_grad) ** 2).reshape(arqmc_means.shape[0], -1).mean(1)
+    mc_errors = [np.nan] if 'mc' in out_set else ((mc_means - expected_grad) ** 2).reshape(mc_means.shape[0], -1).mean(1) # why the sign is reversed?
+    rqmc_errors = [np.nan] if 'rqmc' in out_set else ((rqmc_means - expected_grad) ** 2).reshape(rqmc_means.shape[0], -1).mean(1)
     arqmc_errors_dict = {
-        sorter: ((arqmc_means - expected_grad) ** 2).reshape(arqmc_means.shape[0], -1).mean(1)
+        sorter: [np.nan] if 'arqmc_{}'.format(sorter) in out_set else ((arqmc_means - expected_grad) ** 2).reshape(arqmc_means.shape[0], -1).mean(1)
         for sorter, arqmc_means in arqmc_means_dict.items()
     }
-    info = {**vars(args)}
+    info = {**vars(args), 'out': out_set}
     if args.save_fn is not None:
         with open(save_fn, 'wb') as f:
             dill.dump(dict(mc_errors=mc_errors, rqmc_errors=rqmc_errors, arqmc_errors_dict=arqmc_errors_dict, info=info), f)
@@ -426,8 +439,8 @@ def main(args=None):
     elif args.mode == 'seeds':
         running_seeds(args.save_fn, exp_f, argparse.Namespace(**vars(args)), args.n_seeds, post_f=post_f)
     elif args.mode == 'collect':
-        assert args.task in ['learn']
-        success_f = lambda result: len(result[1]['out']) == 0
+        assert args.task in ['grad', 'learn']
+        success_f = lambda result: len(result[-1]['out']) == 0
         collect_seeds(args.save_fn, exp_f, args, success_f=success_f, n_seeds=args.n_seeds, max_seed=args.max_seed, post_f=post_f)
 
 

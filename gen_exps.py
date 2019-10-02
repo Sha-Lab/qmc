@@ -192,8 +192,9 @@ def compare_grad_on_lqr():
         '--task': 'grad',
         '--env': 'lqr',
         '--save_fn': 'log/{}/H_[H]-T[n_trajs]'.format(exp_name),
-        '--mode': 'seeds',
+        '--mode': 'collect',
         '--n_seeds': 30,
+        '--max_seed': 50,
         '--sorter': 'value policy norm group permute',
     }
     toggles = []
