@@ -168,6 +168,26 @@ def compare_grad_on_lqr():
     }
     generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)
 
+@cmd()
+def learn_lqr_gt():
+    exp_name = get_function_name()
+    args = ['--fix_std']
+    kwargs = {
+        '--task': 'learn',
+        '--env': 'lqr',
+        '--save_fn': 'log/{}/H_[H]-lr_[lr]'.format(exp_name),
+        '--mode': 'collect',
+        '--n_seeds': 30,
+        '--max_seed': 50,
+        '--algos': 'gt',
+    }
+    toggles = []
+    variants = {
+        '-H': [10, 20, 40],
+        '-lr': [5e-5, 1e-4, 5e-4, 1e-3]
+    }
+    generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)  
+
 if __name__ == "__main__":
     with launch_ipdb_on_exception():
         cmd_run()

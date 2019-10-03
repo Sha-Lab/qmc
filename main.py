@@ -417,7 +417,8 @@ def learning(args):
     if 'rqmc' in args.algos: results['rqmc'] = train('rqmc', variance_reduced_loss, init_policy, noise_type='rqmc')
     if 'arqmc' in args.algos: results['arqmc'] = train('arqmc', variance_reduced_loss, init_policy, noise_type='arqmc')
     if args.env in LQR_ENVS:
-        results['optimal'] = train('optimal', no_loss, get_policy(argparse.Namespace(init_policy='optimal'), env), n_iters=1).repeat(args.n_iters)
+        optimal_args = argparse.Namespace(**{**vars(args), 'init_policy': 'optimal'})
+        results['optimal'] = train('optimal', no_loss, get_policy(optimal_args, env), n_iters=1).repeat(args.n_iters)
     if args.show_fig or args.save_fig is not None:
         valid_results = {k: v for k, v in results.items() if k not in out_set}
         costs = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs)), 'cost': -rs}) for name, rs in valid_results.items()])
