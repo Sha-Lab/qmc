@@ -134,7 +134,7 @@ def learn_pointmass_linear_lr():
     kwargs = {
         '--env': 'pointmass',
         '--n_iters': 1000,
-        '--save_fn': 'log/{}/'.format(exp_name),
+        '--save_fn': 'log/{}/lr_[lr]-s_[sorter]'.format(exp_name),
         '--mode': 'seeds',
         '--n_seeds': 10,
         '--sorter': 'group',

@@ -39,7 +39,7 @@ def parse_args(args=None):
         '--task',
         choices=['cost', 'grad', 'learn'],
         default='learn')
-    parser.add_argument('--algos', default=['mc', 'rqmc', 'arqmc', 'gt'], nargs='+', choices=['mc', 'rqmc', 'arqmc']) # learning use it
+    parser.add_argument('--algos', default=['mc', 'rqmc', 'arqmc'], nargs='+', choices=['mc', 'rqmc', 'arqmc', 'gt']) # learning use it
     parser.add_argument('--env', choices=['lqr', 'cartpole', 'swimmer', 'ant', 'pointmass'], default='lqr')
     parser.add_argument('--map_name', type=str, default='8x8') # for pointmass only
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
