@@ -39,7 +39,7 @@ def parse_args(args=None):
         '--task',
         choices=['cost', 'grad', 'learn'],
         default='learn')
-    parser.add_argument('--algos', default=['mc', 'rqmc', 'arqmc', 'gt'], nargs='+', choices=['mc', 'rqmc', 'arqmc']) # learning use it
+    parser.add_argument('--algos', default=['mc', 'rqmc', 'arqmc'], nargs='+', choices=['mc', 'rqmc', 'arqmc', 'gt']) # learning use it
     parser.add_argument('--env', choices=['lqr', 'cartpole', 'swimmer', 'ant', 'pointmass'], default='lqr')
     parser.add_argument('--map_name', type=str, default='8x8') # for pointmass only
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
@@ -420,7 +420,8 @@ def learning(args):
     if 'rqmc' in args.algos: results['rqmc'] = train('rqmc', variance_reduced_loss, init_policy, noise_type='rqmc')
     if 'arqmc' in args.algos: results['arqmc'] = train('arqmc', variance_reduced_loss, init_policy, noise_type='arqmc')
     if args.env in LQR_ENVS:
-        results['optimal'] = train('optimal', no_loss, get_policy(argparse.Namespace(init_policy='optimal'), env), n_iters=1).repeat(args.n_iters)
+        optimal_args = argparse.Namespace(**{**vars(args), 'init_policy': 'optimal'})
+        results['optimal'] = train('optimal', no_loss, get_policy(optimal_args, env), n_iters=1).repeat(args.n_iters)
     if args.show_fig or args.save_fig is not None:
         valid_results = {k: v for k, v in results.items() if k not in out_set}
         costs = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs)), 'cost': -rs}) for name, rs in valid_results.items()])

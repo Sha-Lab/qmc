@@ -4,43 +4,6 @@ from exps import cmd, cmd_run, generate_args, get_function_name
 
 
 @cmd()
-def search_vpg_on_trajs():
-    variants = {
-        '--n_trajs': [50, 60, 70, 80, 90, 100, 150, 200],
-    }
-    args = []
-    kwargs = {
-        '--n_iters': 8000,
-        '--n_workers': 50,
-        '--hidden_sizes': (32, 32),
-        '--mode': 'seeds',
-        '--n_seeds': 8,
-    }
-    def post_variant(variant):
-        variant['--save_fn'] = 'data/search_vpg_trajs_32/{}'.format(variant['--n_trajs'])
-        return variant
-    generate_args('exps/search_vpg_trajs_32', args, kwargs, variants, post_variant=post_variant, shuffle=False)
-
-@cmd()
-def search_PGPE():
-    variants = {
-        '--n_trajs': [100, 300, 500, 700, 1000, 1500],
-        '--xu_dim': [(20, 12), (10, 8), (5, 5)],
-        '--init_scale': [1.0, 3.0, 5.0],
-        '-H': [5, 10, 15],
-    }
-    args = []
-    kwargs = {
-        '--task': 'learn_PGPE',
-        '--mode': 'collect',
-        '--n_iters': 2000,
-    }
-    def post_variant(variant):
-        variant['--save_fn'] = 'data/search_PGPE/{}_{}-{}-{}'.format(variant['--xu_dim'][0], variant['--xu_dim'][1], variant['--init_scale'], variant['-H'])
-        return variant
-    generate_args('exps/search_PGPE', args, kwargs, variants, post_variant=post_variant, shuffle=False)
-
-@cmd()
 def search_arqmc_linear(touch: int=1, shuffle: int=0):
     variants = {
         '--n_trajs': [64, 128, 256, 512],
@@ -86,7 +49,7 @@ def compare_arqmc_sorter_on_cost():
     generate_args('exps/{}'.format(name), args, kwargs, toggles, variants, post_option=post_option, shuffle=False)
 
 @cmd()
-def compare_on_cartpole():
+def learn_cartpole():
     args = []
     kwargs = {
         '--env': 'cartpole',
@@ -108,7 +71,7 @@ def compare_on_cartpole():
     generate_args('exps/compare_on_cartpole', args, kwargs, toggles, variants, post_option=post_option, shuffle=False)
 
 @cmd()
-def compare_on_swimmer_fix_std():
+def learn_swimmer_fix_std():
     exp_name = get_function_name()
     args = ['--fix_std']
     kwargs = {
@@ -130,7 +93,7 @@ def compare_on_swimmer_fix_std():
     generate_args(exp_path, args, kwargs, toggles, variants, shuffle=False)
 
 @cmd()
-def compare_cost_on_brownian():
+def cost_brownian():
     exp_name = get_function_name()
     args = []
     kwargs = {
@@ -147,7 +110,7 @@ def compare_cost_on_brownian():
     generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)
    
 @cmd()
-def compare_cost_on_lqr():
+def cost_lqr():
     exp_name = get_function_name()
     args = []
     kwargs = {
@@ -165,22 +128,23 @@ def compare_cost_on_lqr():
     generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)
 
 @cmd()
-def search_learn_on_pointmass():
-    exp_name = None#get_function_name()
+def learn_pointmass_linear_lr():
+    exp_name = get_function_name()
     args = ['--gate_output']
     kwargs = {
         '--env': 'pointmass',
         '--n_iters': 1000,
-        '--save_fn': 'log/{}/H_[H]-T[n_trajs]-HI[hidden_sizes]'.format(exp_name),
+        '--save_fn': 'log/{}/lr_[lr]-s_[sorter]'.format(exp_name),
         '--mode': 'seeds',
-        '--n_seeds': 20,
+        '--n_seeds': 10,
         '--sorter': 'group',
+        '--init_policy': 'linear',
+        '--n_trajs': 64,
+        '-H': 30,
     }
     toggles = []
     variants = {
-        '-H': [30],#[30, 50, 70],
-        '--n_trajs': [64],#[64, 128, 256, 512],
-        '--hidden_sizes': [(16,)],#[(8,), (16,), (32,)],
+        '-lr': [5e-5, 1e-4, 5e-4, 1e-3],
     }
     generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants) 
 
@@ -203,6 +167,26 @@ def compare_grad_on_lqr():
         '--n_trajs': [64, 256, 1024],
     }
     generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)
+
+@cmd()
+def learn_lqr_gt():
+    exp_name = get_function_name()
+    args = ['--fix_std']
+    kwargs = {
+        '--task': 'learn',
+        '--env': 'lqr',
+        '--save_fn': 'log/{}/H_[H]-lr_[lr]'.format(exp_name),
+        '--mode': 'collect',
+        '--n_seeds': 30,
+        '--max_seed': 50,
+        '--algos': 'gt',
+    }
+    toggles = []
+    variants = {
+        '-H': [10, 20, 40],
+        '-lr': [5e-5, 1e-4, 5e-4, 1e-3]
+    }
+    generate_args('exps/{}'.format(exp_name), args, kwargs, toggles, variants)  
 
 if __name__ == "__main__":
     with launch_ipdb_on_exception():
