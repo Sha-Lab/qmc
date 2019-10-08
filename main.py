@@ -22,7 +22,7 @@ from models import GaussianPolicy, get_mlp
 from utils import MPSampler, SeqSampler, ArrayRQMCSampler, VecSampler, rollout # sampler
 from utils import sort_by_optimal_value, sort_by_norm, multdim_sort, no_sort, sort_by_policy_value # sorting function
 from utils import reinforce_loss, variance_reduced_loss, no_loss, lqr_gt_loss # loss function
-from utils import set_seed, select_device, tensor, running_seeds, collect_seeds, get_gaussian_policy_gradient, random_permute, logger, debug, Config, HorizonWrapper, cosine_similarity 
+from utils import set_seed, select_device, tensor, running_seeds, collect_seeds, get_gaussian_policy_gradient, random_permute, logger, debug, Config, HorizonWrapper, cosine_similarity, ssj_normal
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
@@ -131,6 +131,8 @@ def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
         loc = torch.zeros(action_dim)
         scale = torch.ones(action_dim)
         noises = np.asarray([Normal_RQMC(loc, scale).sample(torch.Size([n_trajs])).data.numpy() for _ in range(n_steps)]).reshape(n_steps, n_trajs, action_dim).transpose(1, 0, 2)
+    elif noise_type == 'ssj':
+        noises = np.array([ssj_normal(n_trajs, action_dim) for _ in range(n_steps)]).transpose(1, 0, 2)
     else:
         raise Exception('unknown rqmc type')
     return noises
@@ -192,7 +194,8 @@ def compare_cost(args):
     # array rqmc
     arqmc_costs_dict = {}
     arqmc_means_dict = {}
-    arqmc_noises = get_rqmc_noises(args.n_trajs, env.max_steps, env.M, 'array')
+    arqmc_noises = get_rqmc_noises(args.n_trajs, env.max_steps, env.M, 'ssj')
+    #arqmc_noises = get_rqmc_noises(args.n_trajs, env.max_steps, env.M, 'array')
 
     for sorter in args.sorter:
         arqmc_costs = []
