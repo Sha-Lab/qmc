@@ -27,7 +27,7 @@ def parse_args(args=None):
     parser.add_argument('--horizon', type=int, default=10)
     parser.add_argument('--n_runs', type=int, default=20)
     parser.add_argument('--gamma', type=float, default=1.0)
-    parser.add_argument('--sorter', nargs='+', default='value', choices=['value', 'norm', 'none', 'permute', 'group'])
+    parser.add_argument('--sorter', nargs='+', default=['value'], choices=['value', 'norm', 'none', 'permute', 'group'])
     parser.add_argument('--algos', type=str, nargs='+', default=['mc', 'rqmc', 'arqmc'])
     parser.add_argument('--exp_name', type=str, default=None)
     parser.add_argument('--seed', type=int, default=None)
