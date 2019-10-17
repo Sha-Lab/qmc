@@ -13,7 +13,7 @@ from envs import Brownian, LQR
 from rqmc_distributions import Normal_RQMC, Uniform_RQMC
 from scipy.stats import norm
 from models import GaussianPolicy
-from utils import logger, set_seed
+from utils import logger, set_seed, ssj_uniform, uniform2normal, random_shift
 from utils import sort_by_optimal_value, sort_by_norm, multdim_sort, no_sort, random_permute
 
 # TODO:
@@ -64,9 +64,8 @@ def brownian(args):
         errors = []
         for _ in range(args.n_runs):
             returns = [] 
-            loc = torch.zeros(args.horizon)
-            scale = torch.ones(args.horizon)
-            actions = Normal_RQMC(loc, scale, scrambled=True).sample(torch.Size([args.n_trajs])).data.numpy()
+            #actions = Normal_RQMC(torch.zeros(args.horizon), torch.ones(args.horizon), scrambled=True).sample(torch.Size([args.n_trajs])).data.numpy()
+            actions = uniform2normal(ssj_uniform(args.n_trajs, args.horizon))
             
             for i in range(args.n_trajs):
                 rs = 0.0
@@ -88,14 +87,17 @@ def brownian(args):
             envs = [Brownian(args.gamma) for _ in range(args.n_trajs)]
             states = [env.reset() for env in envs]
             dones = [False for _ in range(args.n_trajs)]
-            for _ in range(args.horizon):
+            uniform_noises = ssj_uniform(args.n_trajs, 1) # n_trajs , action_dim
+            noises = uniform2normal(random_shift(np.expand_dims(uniform_noises, 1).repeat(args.horizon, 1), 0))
+            for j in range(args.horizon):
                 if np.all(dones): break
                 envs, states, dones, returns = zip(*sorted(zip(envs, states, dones, returns), key=lambda x: np.inf if x[2] else x[1]))
                 states, dones, returns = list(states), list(dones), list(returns)
-                noises = Normal_RQMC(torch.zeros(1), torch.ones(1)).sample(torch.Size([args.n_trajs])).data.numpy()
+                #noises = Normal_RQMC(torch.zeros(1), torch.ones(1)).sample(torch.Size([args.n_trajs])).data.numpy()
+                #noises = uniform2normal(random_shift(uniform_noises))
                 for i, env in enumerate(envs):
                     if dones[i]: break
-                    state, r, done, _ = env.step(noises[i])
+                    state, r, done, _ = env.step(noises[i][j])
                     states[i] = state
                     dones[i] = done
                     returns[i] += r
@@ -159,9 +161,10 @@ def lqr(args):
         errors = []
         for _ in range(args.n_runs):
             returns = []
-            loc = torch.zeros(env.M * args.horizon)
-            scale = torch.ones(env.M * args.horizon)
-            noises = Normal_RQMC(loc, scale, scrambled=True).sample(torch.Size([args.n_trajs])).numpy().reshape(args.n_trajs, args.horizon, env.M)
+            #noises = Normal_RQMC(
+                #torch.zeros(env.M * args.horizon), 
+                #torch.ones(env.M * args.horizon), scrambled=True).sample(torch.Size([args.n_trajs])).numpy().reshape(args.n_trajs, args.horizon, env.M)
+            noises = uniform2normal(ssj_uniform(args.n_trajs, args.horizon * env.M)).reshape(args.n_trajs, args.horizon, env.M)
             for i in range(args.n_trajs):
                 rs = 0.0
                 state = env.reset()
@@ -184,6 +187,8 @@ def lqr(args):
                 states = [env.reset() for env in envs]
                 dones = [False for _ in range(args.n_trajs)]
                 returns = [0.0 for _ in range(args.n_trajs)]
+                uniform_noises = ssj_uniform(args.n_trajs, env.M) # it is also ok to use the same set of uniform noises for different runs
+                noises = uniform2normal(random_shift(np.expand_dims(uniform_noises, 1).repeat(args.horizon, 1), 0))
                 for j in range(args.horizon):
                     if np.all(dones): break
                     pairs = list(zip(envs, states, dones, returns))
@@ -191,10 +196,11 @@ def lqr(args):
                     pairs_done = [p for p in pairs if p[2]]
                     envs, states, dones, returns = zip(*( sorter(pairs_to_sort) + pairs_done ))
                     states, dones, returns = list(states), list(dones), list(returns)
-                    noises = Normal_RQMC(torch.zeros(env.M), torch.ones(env.M), scrambled=True).sample(torch.Size([args.n_trajs])).numpy()
+                    #noises = Normal_RQMC(torch.zeros(env.M), torch.ones(env.M), scrambled=True).sample(torch.Size([args.n_trajs])).numpy()
+                    #noises = uniform2normal(random_shift(uniform_noises))
                     for i, env in enumerate(envs):
                         if dones[i]: break 
-                        state, r, done, _ = env.step(get_action(states[i], K, noises[i]))
+                        state, r, done, _ = env.step(get_action(states[i], K, noises[i][j]))
                         states[i] = state
                         dones[i] = done
                         returns[i] += r

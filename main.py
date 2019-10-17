@@ -19,9 +19,10 @@ import exps
 import postprocess
 from envs import *
 from models import GaussianPolicy, get_mlp
-from utils import MPSampler, SeqSampler, ArrayRQMCSampler, VecSampler, rollout
-from utils import sort_by_optimal_value, sort_by_norm, multdim_sort, no_sort, sort_by_policy_value
-from utils import set_seed, select_device, tensor, reinforce_loss, variance_reduced_loss, no_loss, running_seeds, collect_seeds, get_gaussian_policy_gradient, random_permute, logger, debug, Config, HorizonWrapper, cosine_similarity
+from utils import MPSampler, SeqSampler, ArrayRQMCSampler, VecSampler, rollout # sampler
+from utils import sort_by_optimal_value, sort_by_norm, multdim_sort, no_sort, sort_by_policy_value # sorting function
+from utils import reinforce_loss, variance_reduced_loss, no_loss, lqr_gt_loss # loss function
+from utils import set_seed, select_device, tensor, running_seeds, collect_seeds, get_gaussian_policy_gradient, random_permute, logger, debug, Config, HorizonWrapper, cosine_similarity, ssj_normal
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
@@ -38,7 +39,7 @@ def parse_args(args=None):
         '--task',
         choices=['cost', 'grad', 'learn'],
         default='learn')
-    parser.add_argument('--algos', default=['mc', 'rqmc', 'arqmc'], nargs='+', choices=['mc', 'rqmc', 'arqmc']) # learning use it
+    parser.add_argument('--algos', default=['mc', 'rqmc', 'arqmc'], nargs='+', choices=['mc', 'rqmc', 'arqmc', 'gt']) # learning use it
     parser.add_argument('--env', choices=['lqr', 'cartpole', 'swimmer', 'ant', 'pointmass'], default='lqr')
     parser.add_argument('--map_name', type=str, default='8x8') # for pointmass only
     parser.add_argument('--xu_dim', type=int, nargs=2, default=(20, 12))
@@ -130,6 +131,8 @@ def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
         loc = torch.zeros(action_dim)
         scale = torch.ones(action_dim)
         noises = np.asarray([Normal_RQMC(loc, scale).sample(torch.Size([n_trajs])).data.numpy() for _ in range(n_steps)]).reshape(n_steps, n_trajs, action_dim).transpose(1, 0, 2)
+    elif noise_type == 'ssj':
+        noises = np.array([ssj_normal(n_trajs, action_dim) for _ in range(n_steps)]).transpose(1, 0, 2)
     else:
         raise Exception('unknown rqmc type')
     return noises
@@ -191,7 +194,8 @@ def compare_cost(args):
     # array rqmc
     arqmc_costs_dict = {}
     arqmc_means_dict = {}
-    arqmc_noises = get_rqmc_noises(args.n_trajs, env.max_steps, env.M, 'array')
+    arqmc_noises = get_rqmc_noises(args.n_trajs, env.max_steps, env.M, 'ssj')
+    #arqmc_noises = get_rqmc_noises(args.n_trajs, env.max_steps, env.M, 'array')
 
     for sorter in args.sorter:
         arqmc_costs = []
@@ -306,10 +310,6 @@ def compare_grad(args):
         arqmc_means_dict[sorter] = arqmc_means
 
     expected_grad = env.expected_policy_gradient(K, Sigma_a)
-    #print('expected norm: {}'.format(np.linalg.norm(expected_grad)))
-    #print('mc angle: {}, norm: {}'.format(cosine_similarity(mc_means[-1].flatten(), expected_grad.flatten()), np.linalg.norm(mc_means[-1])))
-    #print('rqmc angle: {}, norm: {}'.format(cosine_similarity(rqmc_means[-1].flatten(), expected_grad.flatten()), np.linalg.norm(rqmc_means[-1])))
-    #print('arqmc angle: {}, norm: {}'.format(cosine_similarity(arqmc_means[-1].flatten(), expected_grad.flatten()), np.linalg.norm(arqmc_means[-1])))
 
     mc_errors = [np.nan] if 'mc' in out_set else ((mc_means - expected_grad) ** 2).reshape(mc_means.shape[0], -1).mean(1) # why the sign is reversed?
     rqmc_errors = [np.nan] if 'rqmc' in out_set else ((rqmc_means - expected_grad) ** 2).reshape(rqmc_means.shape[0], -1).mean(1)
@@ -379,8 +379,9 @@ def learning(args):
                 all_returns.append(np.nan)
                 continue
             returns = []
+            qs = [] # the estimated q value
             loss = [] # policy gradient loss
-            if noise_type == 'mc': # mc, rqmc, arqmc
+            if noise_type == 'mc':
                 noises = np.random.randn(args.n_trajs, env.max_steps, M)
             elif noise_type == 'rqmc':
                 noises = get_rqmc_noises(args.n_trajs, env.max_steps, M, 'trajwise')
@@ -390,29 +391,37 @@ def learning(args):
                 raise Exception('unknown sequence type')
             if noise_type in ['mc', 'rqmc']:
                 data = sampler.sample(policy, noises)
-            else:
+            elif noise_type == 'arqmc':
                 data = arqmc_sampler.sample(policy, noises)
             if isinstance(data[0], dict): # from arrayrqmcsampler
                 data = [(np.asarray(d['states']), np.asarray(d['actions']), np.asarray(d['rewards'])) for d in data]
             for traj in data:
                 states, actions, rewards = traj[:3]
-                loss.append(loss_fn(states, actions, rewards, policy))
-                returns.append(rewards.sum())
                 if len(states) != args.H and args.env in LQR_ENVS:
                     out_set.add(name)
+                    break
+                qs.append(rewards[::-1].cumsum()[::-1].copy())
+                returns.append(qs[-1][0])
+            if name in out_set: continue # speedup
             optim.zero_grad()
-            loss = -torch.mean(torch.stack(loss))
+            states, actions, qs = list(zip(*data))[:3] # list of list
+            states, actions, qs = np.concatenate(states), np.concatenate(actions), np.concatenate(qs) # the whole list
+            loss = loss_fn(states, actions, qs, policy)
             loss.backward()
             optim.step()
             all_returns.append(np.mean(returns))
             prog.set_postfix(ret=all_returns[-1])
         return np.asarray(all_returns)
     results = {}
+    if 'gt' in args.algos:
+        assert args.fix_std, 'gt can only work with fix std'
+        results['gt'] = train('gt', lqr_gt_loss(env), init_policy, noise_type='mc')
     if 'mc' in args.algos: results['mc'] = train('mc', variance_reduced_loss, init_policy, noise_type='mc')
     if 'rqmc' in args.algos: results['rqmc'] = train('rqmc', variance_reduced_loss, init_policy, noise_type='rqmc')
     if 'arqmc' in args.algos: results['arqmc'] = train('arqmc', variance_reduced_loss, init_policy, noise_type='arqmc')
     if args.env in LQR_ENVS:
-        results['optimal'] = train('optimal', no_loss, get_policy(argparse.Namespace(init_policy='optimal'), env), n_iters=1).repeat(args.n_iters)
+        optimal_args = argparse.Namespace(**{**vars(args), 'init_policy': 'optimal'})
+        results['optimal'] = train('optimal', no_loss, get_policy(optimal_args, env), n_iters=1).repeat(args.n_iters)
     if args.show_fig or args.save_fig is not None:
         valid_results = {k: v for k, v in results.items() if k not in out_set}
         costs = pd.concat([pd.DataFrame({'name': name, 'x': np.arange(len(rs)), 'cost': -rs}) for name, rs in valid_results.items()])

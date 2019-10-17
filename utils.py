@@ -1,5 +1,6 @@
 import time
 import gym
+import scipy
 import sys
 import copy
 import dill
@@ -22,7 +23,7 @@ from scipy.stats import norm
 from contextlib import contextmanager
 from multiprocessing.pool import ThreadPool
 
-from rqmc_distributions import dist_rqmc
+from rqmc_distributions import ssj_sobol
 
 class Config:
     DEVICE = torch.device('cpu')
@@ -411,19 +412,26 @@ def cumulative_return(rewards, discount):
         returns.append(cur_return)
     return returns[::-1]
 
-def reinforce_loss(states, actions, rewards, policy):
+def reinforce_loss(states, actions, qs, policy):
     log_probs = policy.distribution(states).log_prob(tensor(actions)).sum(-1)
-    return log_probs.sum() * tensor(rewards).sum()
+    return -(log_probs * tensor(qs)).mean()
 
-def variance_reduced_loss(states, actions, rewards, policy):
+def variance_reduced_loss(states, actions, qs, policy):
     log_probs = policy.distribution(states).log_prob(tensor(actions)).sum(-1)
-    returns = rewards[::-1].cumsum()[::-1].copy()
-    assert np.all(np.isfinite(returns)), 'invalid return'
+    assert np.all(np.isfinite(qs)), 'invalid return'
     assert not torch.isnan(log_probs).any(), 'invalid logprobs'
-    return (log_probs * tensor(returns)).sum()
+    return -(log_probs * tensor(qs)).mean()
 
 def no_loss(states, actions, rewards, policy):
     return tensor(0.0, requires_grad=True)
+
+def lqr_gt_loss(env):
+    # it only works for Gaussian Policy with linear layer, no bias, fix_std, does not gate output
+    def f(states, actions, qs, policy):
+        K = policy._mean.weight
+        grad = env.expected_policy_gradient(K.detach().cpu().numpy(), torch.diag(policy.std).detach().cpu().numpy())
+        return -torch.trace(torch.matmul(tensor(grad.T), K)) / env.max_steps # just to make the scale same as REINFORCE loss
+    return f
 
 # this is a tricky function, since it will affect the gradient of the policy, and only works for Gaussian policy
 def get_gaussian_policy_gradient(states, actions, rewards, policy, loss_fn):
@@ -504,3 +512,16 @@ def random_permute(pairs):
 
 def no_sort(pairs):
     return pairs
+
+def ssj_uniform(n_samples, dim):
+    assert not (n_samples & (n_samples - 1)), 'n_samples has to be a power of 2 to use ssj'
+    return ssj_sobol.uniform(int(np.log2(n_samples)), dim)
+
+def uniform2normal(x):
+    res = scipy.special.erfinv(2 * x - 1) * np.sqrt(2)
+    res = np.clip(res, -5.3, 5.3)
+    return res
+
+# randomly shift, with shared noise across one dim
+def random_shift(x, dim=0):
+    return (x + np.random.rand(*( x.shape[:dim] + (1,) + x.shape[dim+1:] ))) % 1.0
