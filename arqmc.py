@@ -7,7 +7,7 @@ import numpy as np
 from pathlib import Path
 from ipdb import launch_ipdb_on_exception
 
-import exps
+import exp_utils.run
 from envs import Brownian, LQR
 #from rqmc_distributions.dist_rqmc import Uniform_RQMC, Normal_RQMC
 from rqmc_distributions import Normal_RQMC, Uniform_RQMC
@@ -31,7 +31,7 @@ def parse_args(args=None):
     parser.add_argument('--algos', type=str, nargs='+', default=['mc', 'rqmc', 'arqmc'])
     parser.add_argument('--exp_name', type=str, default=None)
     parser.add_argument('--seed', type=int, default=None)
-    return exps.parse_args(parser, args, exp_name_attr='exp_name')
+    return exp_utils.run.parse_args(parser, args, exp_name_attr='exp_name')
 
 ### tasks ### (estimate cost, learn)
 

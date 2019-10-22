@@ -1,0 +1,12 @@
+ --env lqr --exp_name cost_lqr/H_[horizon]-T[n_trajs] --n_runs 30 --seed 0 --sorter value norm group permute --horizon 20 --n_trajs 32
+ --env lqr --exp_name cost_lqr/H_[horizon]-T[n_trajs] --n_runs 30 --seed 0 --sorter value norm group permute --horizon 20 --n_trajs 64
+ --env lqr --exp_name cost_lqr/H_[horizon]-T[n_trajs] --n_runs 30 --seed 0 --sorter value norm group permute --horizon 20 --n_trajs 128
+ --env lqr --exp_name cost_lqr/H_[horizon]-T[n_trajs] --n_runs 30 --seed 0 --sorter value norm group permute --horizon 20 --n_trajs 256
+ --env lqr --exp_name cost_lqr/H_[horizon]-T[n_trajs] --n_runs 30 --seed 0 --sorter value norm group permute --horizon 20 --n_trajs 512
+ --env lqr --exp_name cost_lqr/H_[horizon]-T[n_trajs] --n_runs 30 --seed 0 --sorter value norm group permute --horizon 20 --n_trajs 1024
+ --env lqr --exp_name cost_lqr/H_[horizon]-T[n_trajs] --n_runs 30 --seed 0 --sorter value norm group permute --horizon 40 --n_trajs 32
+ --env lqr --exp_name cost_lqr/H_[horizon]-T[n_trajs] --n_runs 30 --seed 0 --sorter value norm group permute --horizon 40 --n_trajs 64
+ --env lqr --exp_name cost_lqr/H_[horizon]-T[n_trajs] --n_runs 30 --seed 0 --sorter value norm group permute --horizon 40 --n_trajs 128
+ --env lqr --exp_name cost_lqr/H_[horizon]-T[n_trajs] --n_runs 30 --seed 0 --sorter value norm group permute --horizon 40 --n_trajs 256
+ --env lqr --exp_name cost_lqr/H_[horizon]-T[n_trajs] --n_runs 30 --seed 0 --sorter value norm group permute --horizon 40 --n_trajs 512
+ --env lqr --exp_name cost_lqr/H_[horizon]-T[n_trajs] --n_runs 30 --seed 0 --sorter value norm group permute --horizon 40 --n_trajs 1024

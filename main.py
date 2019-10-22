@@ -22,7 +22,7 @@ from models import GaussianPolicy, get_mlp
 from utils import MPSampler, SeqSampler, ArrayRQMCSampler, VecSampler, rollout # sampler
 from utils import sort_by_optimal_value, sort_by_norm, multdim_sort, no_sort, sort_by_policy_value # sorting function
 from utils import reinforce_loss, variance_reduced_loss, no_loss, lqr_gt_loss # loss function
-from utils import set_seed, select_device, tensor, running_seeds, collect_seeds, get_gaussian_policy_gradient, random_permute, logger, debug, Config, HorizonWrapper, cosine_similarity, ssj_normal
+from utils import set_seed, select_device, tensor, running_seeds, collect_seeds, get_gaussian_policy_gradient, random_permute, logger, debug, Config, HorizonWrapper, cosine_similarity
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
