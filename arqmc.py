@@ -1,4 +1,5 @@
 import sys
+import json
 import argparse
 import random
 import torch
@@ -7,21 +8,16 @@ import numpy as np
 from pathlib import Path
 from ipdb import launch_ipdb_on_exception
 
-import exps.utils.run
+import exps._exp_utils.run as exp_run
 from envs import Brownian, LQR
-#from rqmc_distributions.dist_rqmc import Uniform_RQMC, Normal_RQMC
-from rqmc_distributions import Normal_RQMC, Uniform_RQMC
 from scipy.stats import norm
 from models import GaussianPolicy
 from utils import logger, set_seed, ssj_uniform, uniform2normal, random_shift
 from utils import sort_by_optimal_value, sort_by_norm, multdim_sort, no_sort, random_permute
 
-# TODO:
-# try arqmc without full trajectory
 
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
-    #parser.add_argument('--task', choices=['estimate_cost', 'learn'], default='estimate_cost')
     parser.add_argument('--env', choices=['brownian', 'lqr'], default='lqr')
     parser.add_argument('--n_trajs', type=int, default=2 ** 5)
     parser.add_argument('--horizon', type=int, default=10)
@@ -31,17 +27,13 @@ def parse_args(args=None):
     parser.add_argument('--algos', type=str, nargs='+', default=['mc', 'rqmc', 'arqmc'])
     parser.add_argument('--exp_name', type=str, default=None)
     parser.add_argument('--seed', type=int, default=None)
-    return exps.utils.run.parse_args(parser, args, exp_name_attr='exp_name')
+    return exp_run.parse_args(parser, args, exp_name_attr='exp_name')
 
-### tasks ### (estimate cost, learn)
 
-### envs ### (see args.env)
-
-### sampler ###
-        
 def brownian(args):
     ground_truth = 0.2 / np.sqrt(2 * np.pi) * np.sum(np.sqrt(np.arange(1, args.horizon + 1)) * (np.cumprod(args.gamma * np.ones(args.horizon))/ args.gamma))
     env = Brownian(gamma=args.gamma)
+    res_dict = {}
     # mc
     if 'mc' in args.algos:
         errors = []
@@ -58,15 +50,17 @@ def brownian(args):
                 returns.append(rs)
             res = np.mean(returns)
             errors.append(np.abs(ground_truth - res))
+        errors = np.asarray(errors).tolist()
         logger.log('mc error: {}({})'.format(np.mean(errors), np.std(errors)), name='out')
+        res_dict['mc'] = {'errors': errors}
     # rqmc
     if 'rqmc' in args.algos:
         errors = []
         for _ in range(args.n_runs):
             returns = [] 
             #actions = Normal_RQMC(torch.zeros(args.horizon), torch.ones(args.horizon), scrambled=True).sample(torch.Size([args.n_trajs])).data.numpy()
-            actions = uniform2normal(ssj_uniform(args.n_trajs, args.horizon))
-            
+            actions = uniform2normal(random_shift(ssj_uniform(args.n_trajs, args.horizon), 0))
+
             for i in range(args.n_trajs):
                 rs = 0.0
                 env.reset()
@@ -78,7 +72,9 @@ def brownian(args):
                 returns.append(rs)
             res = np.mean(returns)
             errors.append(np.abs(ground_truth - res))
+        errors = np.asarray(errors).tolist()
         logger.log('rqmc error: {}({})'.format(np.mean(errors), np.std(errors)), name='out')
+        res_dict['rqmc'] = {'errors': errors}
     # array rqmc
     if 'arqmc' in args.algos:
         errors = []
@@ -89,7 +85,7 @@ def brownian(args):
             dones = [False for _ in range(args.n_trajs)]
             uniform_noises = ssj_uniform(args.n_trajs, 1) # n_trajs , action_dim
             noises = uniform2normal(random_shift(np.expand_dims(uniform_noises, 1).repeat(args.horizon, 1), 0)) # n_trajs, horizon, action_dim
-            import ipdb; ipdb.set_trace()
+            noises = noises.squeeze(-1)
             for j in range(args.horizon):
                 if np.all(dones): break
                 envs, states, dones, returns = zip(*sorted(zip(envs, states, dones, returns), key=lambda x: np.inf if x[2] else x[1]))
@@ -103,7 +99,12 @@ def brownian(args):
                     dones[i] = done
                     returns[i] += r
             errors.append(np.abs(ground_truth - np.mean(returns)))
+        errors = np.asarray(errors).tolist()
         logger.log('array rqmc error: {}({})'.format(np.mean(errors), np.std(errors)), name='out')
+        res_dict['arqmc'] = {'errors': errors}
+    with open(Path('log', args.exp_name, 'res.json'), 'w') as f: # save results to json
+        json.dump(res_dict, f)
+
 
 def get_sorter(sorter, env):
     if sorter == 'value':
@@ -118,6 +119,7 @@ def get_sorter(sorter, env):
         return multdim_sort
     else:
         raise Exception('unknown sorter')
+
 
 def lqr(args):
     def get_action(state, K, noise):
@@ -136,6 +138,7 @@ def lqr(args):
             Sigma_s_scale=0.0,
             gamma=args.gamma,
         )
+    res_dict = {}
     env = get_env()
     K = env.optimal_controller()
     #K = np.random.randn(env.M, env.N)
@@ -156,7 +159,9 @@ def lqr(args):
                 returns.append(rs)
             res = np.mean(returns)
             errors.append(np.abs(ground_truth - res))
+        errors = np.asarray(errors).tolist()
         logger.log('mc error: {}({})'.format(np.mean(errors), np.std(errors)), name='out')
+        res_dict['mc'] = {'errors': errors}
     # rqmc
     if 'rqmc' in args.algos:
         errors = []
@@ -165,7 +170,7 @@ def lqr(args):
             #noises = Normal_RQMC(
                 #torch.zeros(env.M * args.horizon), 
                 #torch.ones(env.M * args.horizon), scrambled=True).sample(torch.Size([args.n_trajs])).numpy().reshape(args.n_trajs, args.horizon, env.M)
-            noises = uniform2normal(ssj_uniform(args.n_trajs, args.horizon * env.M)).reshape(args.n_trajs, args.horizon, env.M)
+            noises = uniform2normal(random_shift(ssj_uniform(args.n_trajs, args.horizon * env.M), 0)).reshape(args.n_trajs, args.horizon, env.M)
             for i in range(args.n_trajs):
                 rs = 0.0
                 state = env.reset()
@@ -177,7 +182,9 @@ def lqr(args):
                 returns.append(rs)
             res = np.mean(returns)
             errors.append(np.abs(ground_truth - res))
+        errors = np.asarray(errors).tolist()
         logger.log('rqmc error: {}({})'.format(np.mean(errors), np.std(errors)), name='out')
+        res_dict['rqmc'] = {'errors': errors}
     # array rqmc
     if 'arqmc' in args.algos:
         for sorter_type in args.sorter:
@@ -206,7 +213,12 @@ def lqr(args):
                         dones[i] = done
                         returns[i] += r
                 errors.append(np.abs(ground_truth - np.mean(returns)))
+            errors = np.asarray(errors).tolist()
             logger.log('array rqmc error ({}): {}({})'.format(sorter_type, np.mean(errors), np.std(errors)), name='out')
+            res_dict['rqmc'] = {'sorter_type': sorter_type, 'errors': errors}
+    with open(Path('log', args.exp_name, 'res.json'), 'w') as f: # save results to json
+        json.dump(res_dict, f)
+
 
 def main(args=None):
     args = parse_args(args)
@@ -225,6 +237,7 @@ def main(args=None):
         lqr(args)
     else:
         raise Exception('unknown exp type')
+
 
 if __name__ == "__main__":
     with launch_ipdb_on_exception():
