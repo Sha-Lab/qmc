@@ -7,7 +7,7 @@ import numpy as np
 from pathlib import Path
 from ipdb import launch_ipdb_on_exception
 
-import exp_utils.run
+import exps.utils.run
 from envs import Brownian, LQR
 #from rqmc_distributions.dist_rqmc import Uniform_RQMC, Normal_RQMC
 from rqmc_distributions import Normal_RQMC, Uniform_RQMC
@@ -31,7 +31,7 @@ def parse_args(args=None):
     parser.add_argument('--algos', type=str, nargs='+', default=['mc', 'rqmc', 'arqmc'])
     parser.add_argument('--exp_name', type=str, default=None)
     parser.add_argument('--seed', type=int, default=None)
-    return exp_utils.run.parse_args(parser, args, exp_name_attr='exp_name')
+    return exps.utils.run.parse_args(parser, args, exp_name_attr='exp_name')
 
 ### tasks ### (estimate cost, learn)
 
@@ -88,7 +88,8 @@ def brownian(args):
             states = [env.reset() for env in envs]
             dones = [False for _ in range(args.n_trajs)]
             uniform_noises = ssj_uniform(args.n_trajs, 1) # n_trajs , action_dim
-            noises = uniform2normal(random_shift(np.expand_dims(uniform_noises, 1).repeat(args.horizon, 1), 0))
+            noises = uniform2normal(random_shift(np.expand_dims(uniform_noises, 1).repeat(args.horizon, 1), 0)) # n_trajs, horizon, action_dim
+            import ipdb; ipdb.set_trace()
             for j in range(args.horizon):
                 if np.all(dones): break
                 envs, states, dones, returns = zip(*sorted(zip(envs, states, dones, returns), key=lambda x: np.inf if x[2] else x[1]))

@@ -26,11 +26,11 @@ from utils import set_seed, select_device, tensor, running_seeds, collect_seeds,
 from torch.distributions import Uniform, Normal
 from rqmc_distributions import Uniform_RQMC, Normal_RQMC
 
-# DEBUG FLAG
+
 Config.DEBUG = True
 
+
 # TODO:
-# (done) implement discount
 # async vec env, batch action
 
 def parse_args(args=None):
@@ -69,7 +69,9 @@ def parse_args(args=None):
     args = exps.parse_args(parser, args, exp_name_attr='save_fn')
     return args
 
+
 LQR_ENVS = ['lqr']
+
 
 def get_env(args):
     if args.env == 'lqr':
@@ -100,6 +102,7 @@ def get_env(args):
         raise Exception('unsupported lqr env')
     return env
 
+
 def get_policy(args, env):
     N = env.observation_space.shape[0]
     M = env.action_space.shape[0]
@@ -121,6 +124,7 @@ def get_policy(args, env):
         raise Exception('unsupported policy type')
     return GaussianPolicy(N, M, mean_network, learn_std=not args.fix_std, gate_output=args.gate_output)
 
+
 def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
     if noise_type == 'trajwise':
         loc = torch.zeros(n_steps * action_dim)
@@ -137,6 +141,7 @@ def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
         raise Exception('unknown rqmc type')
     return noises
 
+
 def get_sorter(sorter, env, K=None):
     if sorter == 'value':
         return lambda pairs: sorted(pairs, key=sort_by_optimal_value(env))
@@ -152,6 +157,7 @@ def get_sorter(sorter, env, K=None):
         return multdim_sort
     else:
         raise Exception('unknown sorter')
+
 
 # it does not make sense to compare array RQMC in cumulative case, since it treated all trajectories together, but let's see what happen
 def compare_cost(args):
@@ -246,6 +252,7 @@ def compare_cost(args):
         plot.set(yscale='log')
         plt.show()
     return mc_errors, rqmc_errors, arqmc_errors_dict, info
+
 
 def compare_grad(args):
     set_seed(args.seed)
@@ -354,6 +361,7 @@ def compare_grad(args):
         plt.show()
     return mc_errors, rqmc_errors, arqmc_errors_dict, info
 
+
 def learning(args):
     set_seed(args.seed)
     env = get_env(args)
@@ -433,6 +441,7 @@ def learning(args):
             plt.show()
     info = {**vars(args), 'out': out_set}
     return results, info
+
 
 def main(args=None):
     args = parse_args(args)
