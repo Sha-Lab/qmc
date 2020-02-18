@@ -15,7 +15,7 @@ from tqdm import tqdm, trange
 from ipdb import slaunch_ipdb_on_exception
 from pathlib import Path
 
-import exps
+import exps._exp_utils.run as exps
 import postprocess
 from envs import *
 from models import GaussianPolicy, get_mlp
@@ -23,8 +23,7 @@ from utils import MPSampler, SeqSampler, ArrayRQMCSampler, VecSampler, rollout #
 from utils import sort_by_optimal_value, sort_by_norm, multdim_sort, no_sort, sort_by_policy_value # sorting function
 from utils import reinforce_loss, variance_reduced_loss, no_loss, lqr_gt_loss # loss function
 from utils import set_seed, select_device, tensor, running_seeds, collect_seeds, get_gaussian_policy_gradient, random_permute, logger, debug, Config, HorizonWrapper, cosine_similarity
-from torch.distributions import Uniform, Normal
-from rqmc_distributions import Uniform_RQMC, Normal_RQMC
+from utils import ssj_uniform, random_shift, uniform2normal
 
 
 Config.DEBUG = True
@@ -257,6 +256,8 @@ def compare_cost(args):
 def compare_grad(args):
     set_seed(args.seed)
     env = LQR(
+        N=args.xu_dim[0],
+        M=args.xu_dim[1],
         lims=100,
         init_scale=1.0,
         max_steps=args.H,
@@ -275,7 +276,6 @@ def compare_grad(args):
     out_set = set() # here
 
     Sigma_a = np.diag(np.ones(env.M))
-    Sigma_a_inv = np.linalg.inv(Sigma_a)
     mc_grads = []
     for i in tqdm(range(args.n_trajs), 'mc'):
         noises = np.random.randn(env.max_steps, env.M)
@@ -288,9 +288,18 @@ def compare_grad(args):
     mc_means = np.cumsum(mc_grads, axis=0) / np.arange(1, len(mc_grads) + 1)[:, np.newaxis, np.newaxis]
 
     rqmc_grads = []
-    loc = torch.zeros(env.max_steps * env.M)
-    scale = torch.ones(env.max_steps * env.M)
-    rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy()
+    #loc = torch.zeros(env.max_steps * env.M)
+    #scale = torch.ones(env.max_steps * env.M)
+    #rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy()
+    rqmc_noises = uniform2normal(
+        random_shift(
+            ssj_uniform(
+                args.n_trajs,
+                args.H * env.M,
+            ).reshape(args.n_trajs, args.H, env.M),
+            0,
+        )
+    )
     for i in tqdm(range(args.n_trajs), 'rqmc'):
         states, actions, rewards, _, _ = rollout(env, policy, rqmc_noises[i].reshape(env.max_steps, env.M))
         if len(states) < args.H:
@@ -301,7 +310,10 @@ def compare_grad(args):
     rqmc_means = np.cumsum(rqmc_grads, axis=0) / np.arange(1, len(rqmc_grads) + 1)[:, np.newaxis, np.newaxis]
 
     arqmc_means_dict = {}
-    arqmc_noises = get_rqmc_noises(args.n_trajs, args.H, env.M, 'array')
+    #arqmc_noises = get_rqmc_noises(args.n_trajs, args.H, env.M, 'array')
+    uniform_noises = ssj_uniform(args.n_trajs, env.M)  # n_trajs , action_dim
+    arqmc_noises = uniform2normal(
+        random_shift(np.expand_dims(uniform_noises, 1).repeat(args.H, 1), 0))  # n_trajs, horizon, action_dim
     for sorter in args.sorter:
         arqmc_grads = []
         sort_f = get_sorter(sorter, env, K)
