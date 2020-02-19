@@ -215,7 +215,7 @@ def lqr(args):
                 errors.append(np.abs(ground_truth - np.mean(returns)))
             errors = np.asarray(errors).tolist()
             logger.log('array rqmc error ({}): {}({})'.format(sorter_type, np.mean(errors), np.std(errors)), name='out')
-            res_dict['rqmc'] = {'sorter_type': sorter_type, 'errors': errors}
+            res_dict['arqmc-{}'.format(sorter_type)] = {'errors': errors}
     with open(Path('log', args.exp_name, 'res.json'), 'w') as f: # save results to json
         json.dump(res_dict, f)
 
