@@ -436,7 +436,8 @@ def lqr_gt_loss(env):
 # this is a tricky function, since it will affect the gradient of the policy, and only works for Gaussian policy
 def get_gaussian_policy_gradient(states, actions, rewards, policy, loss_fn):
     policy.zero_grad()
-    loss_fn(states, actions, rewards, policy).backward() 
+    returns = rewards[::-1].cumsum()[::-1].copy()
+    loss_fn(states, actions, returns, policy).backward()
     return np.array(policy._mean.weight.grad.cpu().numpy())
 
 def running_seeds(save_fn, sample_f, sample_args, num_seeds=200, post_f=None):
