@@ -246,6 +246,8 @@ def compare_cost(args):
 def compare_grad(args):
     set_seed(args.seed)
     env = LQR(
+        N=args.xu_dim[0],
+        M=args.xu_dim[1],
         lims=100,
         init_scale=1.0,
         max_steps=args.H,

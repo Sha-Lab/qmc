@@ -4,6 +4,25 @@ from exps import cmd, cmd_run, generate_args, get_function_name
 
 
 @cmd()
+def lqr_horizon():
+    exp_name = get_function_name()
+    args = []
+    kwargs = {
+        '--env': 'lqr',
+        '--save_fn': '{}/H_[horizon]-T[n_trajs]'.format(exp_name),
+        '--sorter': 'norm',
+        '--n_seeds': 30,
+        '--mode': 'seeds',
+        '--n_trajs': 1024,
+    }
+    toggles = []
+    variants = {
+        '--horizon': [5, 15, 25, 30, 35, 45, 50],
+    }
+    generate_args('experiments/{}'.format(exp_name), args, kwargs, toggles, variants)
+
+
+@cmd()
 def search_vpg_on_trajs():
     variants = {
         '--n_trajs': [50, 60, 70, 80, 90, 100, 150, 200],
