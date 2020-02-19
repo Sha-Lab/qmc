@@ -15,22 +15,21 @@ from tqdm import tqdm, trange
 from ipdb import slaunch_ipdb_on_exception
 from pathlib import Path
 
-import exps
+import exps._exp_utils.run as exps
 import postprocess
 from envs import *
 from models import GaussianPolicy, get_mlp
 from utils import MPSampler, SeqSampler, ArrayRQMCSampler, VecSampler, rollout # sampler
 from utils import sort_by_optimal_value, sort_by_norm, multdim_sort, no_sort, sort_by_policy_value # sorting function
 from utils import reinforce_loss, variance_reduced_loss, no_loss, lqr_gt_loss # loss function
-from utils import set_seed, select_device, tensor, running_seeds, collect_seeds, get_gaussian_policy_gradient, random_permute, logger, debug, Config, HorizonWrapper, cosine_similarity 
-from torch.distributions import Uniform, Normal
-from rqmc_distributions import Uniform_RQMC, Normal_RQMC
+from utils import set_seed, select_device, tensor, running_seeds, collect_seeds, get_gaussian_policy_gradient, random_permute, logger, debug, Config, HorizonWrapper, cosine_similarity
+from utils import ssj_uniform, random_shift, uniform2normal
 
-# DEBUG FLAG
+
 Config.DEBUG = True
 
+
 # TODO:
-# (done) implement discount
 # async vec env, batch action
 
 def parse_args(args=None):
@@ -69,7 +68,9 @@ def parse_args(args=None):
     args = exps.parse_args(parser, args, exp_name_attr='save_fn')
     return args
 
+
 LQR_ENVS = ['lqr']
+
 
 def get_env(args):
     if args.env == 'lqr':
@@ -100,6 +101,7 @@ def get_env(args):
         raise Exception('unsupported lqr env')
     return env
 
+
 def get_policy(args, env):
     N = env.observation_space.shape[0]
     M = env.action_space.shape[0]
@@ -121,6 +123,7 @@ def get_policy(args, env):
         raise Exception('unsupported policy type')
     return GaussianPolicy(N, M, mean_network, learn_std=not args.fix_std, gate_output=args.gate_output)
 
+
 def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
     if noise_type == 'trajwise':
         loc = torch.zeros(n_steps * action_dim)
@@ -131,9 +134,12 @@ def get_rqmc_noises(n_trajs, n_steps, action_dim, noise_type):
         loc = torch.zeros(action_dim)
         scale = torch.ones(action_dim)
         noises = np.asarray([Normal_RQMC(loc, scale).sample(torch.Size([n_trajs])).data.numpy() for _ in range(n_steps)]).reshape(n_steps, n_trajs, action_dim).transpose(1, 0, 2)
+    elif noise_type == 'ssj':
+        noises = np.array([ssj_normal(n_trajs, action_dim) for _ in range(n_steps)]).transpose(1, 0, 2)
     else:
         raise Exception('unknown rqmc type')
     return noises
+
 
 def get_sorter(sorter, env, K=None):
     if sorter == 'value':
@@ -150,6 +156,7 @@ def get_sorter(sorter, env, K=None):
         return multdim_sort
     else:
         raise Exception('unknown sorter')
+
 
 # it does not make sense to compare array RQMC in cumulative case, since it treated all trajectories together, but let's see what happen
 def compare_cost(args):
@@ -192,7 +199,8 @@ def compare_cost(args):
     # array rqmc
     arqmc_costs_dict = {}
     arqmc_means_dict = {}
-    arqmc_noises = get_rqmc_noises(args.n_trajs, env.max_steps, env.M, 'array')
+    arqmc_noises = get_rqmc_noises(args.n_trajs, env.max_steps, env.M, 'ssj')
+    #arqmc_noises = get_rqmc_noises(args.n_trajs, env.max_steps, env.M, 'array')
 
     for sorter in args.sorter:
         arqmc_costs = []
@@ -244,9 +252,12 @@ def compare_cost(args):
         plt.show()
     return mc_errors, rqmc_errors, arqmc_errors_dict, info
 
+
 def compare_grad(args):
     set_seed(args.seed)
     env = LQR(
+        N=args.xu_dim[0],
+        M=args.xu_dim[1],
         lims=100,
         init_scale=1.0,
         max_steps=args.H,
@@ -265,7 +276,6 @@ def compare_grad(args):
     out_set = set() # here
 
     Sigma_a = np.diag(np.ones(env.M))
-    Sigma_a_inv = np.linalg.inv(Sigma_a)
     mc_grads = []
     for i in tqdm(range(args.n_trajs), 'mc'):
         noises = np.random.randn(env.max_steps, env.M)
@@ -278,9 +288,18 @@ def compare_grad(args):
     mc_means = np.cumsum(mc_grads, axis=0) / np.arange(1, len(mc_grads) + 1)[:, np.newaxis, np.newaxis]
 
     rqmc_grads = []
-    loc = torch.zeros(env.max_steps * env.M)
-    scale = torch.ones(env.max_steps * env.M)
-    rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy()
+    #loc = torch.zeros(env.max_steps * env.M)
+    #scale = torch.ones(env.max_steps * env.M)
+    #rqmc_noises = Normal_RQMC(loc, scale).sample(torch.Size([args.n_trajs])).data.numpy()
+    rqmc_noises = uniform2normal(
+        random_shift(
+            ssj_uniform(
+                args.n_trajs,
+                args.H * env.M,
+            ).reshape(args.n_trajs, args.H, env.M),
+            0,
+        )
+    )
     for i in tqdm(range(args.n_trajs), 'rqmc'):
         states, actions, rewards, _, _ = rollout(env, policy, rqmc_noises[i].reshape(env.max_steps, env.M))
         if len(states) < args.H:
@@ -291,7 +310,10 @@ def compare_grad(args):
     rqmc_means = np.cumsum(rqmc_grads, axis=0) / np.arange(1, len(rqmc_grads) + 1)[:, np.newaxis, np.newaxis]
 
     arqmc_means_dict = {}
-    arqmc_noises = get_rqmc_noises(args.n_trajs, args.H, env.M, 'array')
+    #arqmc_noises = get_rqmc_noises(args.n_trajs, args.H, env.M, 'array')
+    uniform_noises = ssj_uniform(args.n_trajs, env.M)  # n_trajs , action_dim
+    arqmc_noises = uniform2normal(
+        random_shift(np.expand_dims(uniform_noises, 1).repeat(args.H, 1), 0))  # n_trajs, horizon, action_dim
     for sorter in args.sorter:
         arqmc_grads = []
         sort_f = get_sorter(sorter, env, K)
@@ -350,6 +372,7 @@ def compare_grad(args):
         plot.set(yscale='log')
         plt.show()
     return mc_errors, rqmc_errors, arqmc_errors_dict, info
+
 
 def learning(args):
     set_seed(args.seed)
@@ -430,6 +453,7 @@ def learning(args):
             plt.show()
     info = {**vars(args), 'out': out_set}
     return results, info
+
 
 def main(args=None):
     args = parse_args(args)

@@ -1,5 +1,6 @@
 import time
 import gym
+import scipy
 import sys
 import copy
 import dill
@@ -22,7 +23,7 @@ from scipy.stats import norm
 from contextlib import contextmanager
 from multiprocessing.pool import ThreadPool
 
-from rqmc_distributions import dist_rqmc
+from rqmc_distributions import ssj_sobol
 
 class Config:
     DEVICE = torch.device('cpu')
@@ -511,3 +512,16 @@ def random_permute(pairs):
 
 def no_sort(pairs):
     return pairs
+
+def ssj_uniform(n_samples, dim):
+    assert not (n_samples & (n_samples - 1)), 'n_samples has to be a power of 2 to use ssj'
+    return ssj_sobol.uniform(int(np.log2(n_samples)), dim)
+
+def uniform2normal(x):
+    res = scipy.special.erfinv(2 * x - 1) * np.sqrt(2)
+    res = np.clip(res, -5.3, 5.3)
+    return res
+
+# randomly shift, with shared noise across one dim
+def random_shift(x, dim=0):
+    return (x + np.random.rand(*( x.shape[:dim] + (1,) + x.shape[dim+1:] ))) % 1.0

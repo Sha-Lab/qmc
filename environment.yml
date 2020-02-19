@@ -4,7 +4,7 @@ channels:
   - https://repo.continuum.io/pkgs/free
   - defaults
 dependencies:
-  - blas=1.0=mkl
+  #- blas=1.0=mkl
   - ca-certificates=2019.1.23
   - certifi=2018.11.29
   - cffi=1.12.1
@@ -19,9 +19,9 @@ dependencies:
   - libpng=1.6.36
   - libstdcxx-ng=8.2.0
   - libtiff=4.0.10
-  - mkl=2019.1
-  - mkl_fft=1.0.10
-  - mkl_random=1.0.2
+  #- mkl=2019.1
+  #- mkl_fft=1.0.10
+  #- mkl_random=1.0.2
   - ncurses=6.1
   - ninja=1.8.2
   - numpy=1.16.2
@@ -59,7 +59,7 @@ dependencies:
     - filelock==3.0.10
     - future==0.17.1
     - glfw==1.8.1
-    - gym==0.12.0
+    - gym==0.15.3
     - idna==2.8
     - imageio==2.5.0
     - ipdb==0.11
@@ -80,7 +80,7 @@ dependencies:
     - markupsafe==1.1.1
     - matplotlib==3.0.3
     - mistune==0.8.4
-    - mujoco-py==2.0.2.2
+    #- mujoco-py==2.0.2.2
     - nbconvert==5.4.1
     - nbformat==4.4.0
     - notebook==5.7.6
@@ -89,7 +89,7 @@ dependencies:
     - pandas==0.24.1
     - pandocfilters==1.4.2
     - parso==0.3.4
-    - particles==0.1
+    #- particles==0.1
     - pexpect==4.6.0
     - pickleshare==0.7.5
     - prometheus-client==0.6.0
@@ -118,4 +118,5 @@ dependencies:
     - wcwidth==0.1.7
     - webencodings==0.5.1
     - widgetsnbextension==3.4.2
-
+    - py4j
+    - randopt
